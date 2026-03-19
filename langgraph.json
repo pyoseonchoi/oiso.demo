@@ -1,7 +1,8 @@
 {
     "dependencies": [
         "./sysmsg.py",
-        "./tools.py"
+        "./tools.py",
+        "./embeddings_text.py"
     ],
     "graphs": {
         "agent": "./entrypoint.py:app"  

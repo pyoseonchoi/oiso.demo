@@ -1,3 +1,7 @@
+### (c) 2026 oiso.ai
+
+---
+
 # LangGraph 기반 백엔드
 
 - langgraph.json이 엔트리 포인트!

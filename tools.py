@@ -10,7 +10,7 @@ def girlfriend(query: str) -> str:       < 일반 파이썬 하듯이 타입 명
     hehehe.                              < 지금은 삼중 따옴표를 못 달아서 안 썼는데 이렇게 독스트링을 달아야
                                          < 모델이 이걸 언제 써야 하는지 인식함
     Args:                                < 영어 쓰는게 좋을듯
-        query: 너의 이상형                  < 
+        query: 너의 이상형                < 
     return None
 
 암튼 저렇게 적으면, 이게 모델에 들어갈 때
@@ -34,27 +34,33 @@ def girlfriend(query: str) -> str:       < 일반 파이썬 하듯이 타입 명
 아래 프롬프트 넣은 채팅 세션으로 의도를 번역하셈:
 [당신은 지금부터 저의 말을 매우 매끄러운 영어 파이썬 독스트링으로 번역해야 합니다.]
 """
+def closure_rag_object_searching_pipelining_entry(embedder):
+    @tool(response_format="content_and_artifact")
+    def rag_object_searching_pipelining_entry(user_query: str, user_language: str) -> str:
+        """
+        Maps a tourist's desired experience to a specific food, place, concept or entity.
 
-@tool
-def rag_object_searching_pipelining_entry(user_query: str) -> str:
-    """
-    Maps a tourist's desired experience to a specific food, place, concept or entity.
+        This function takes a natural language description of what a user wants to 
+        drink, eat, see, or do during their trip. 
 
-    This function takes a natural language description of what a user wants to 
-    drink, eat, see, or do during their trip. It identifies the exact underlying 
-    concept in English and translates the result back into the language of 
-    the user's original query.
+        Args:
+            user_query (str): A description of the experience the user wants in the user's language.
+                to have (e.g., desired food, attractions, or activities).
+            user_language (str): Accepts the user's input language as a string, in English.
 
-    Args:
-        user_query (str): A description of the experience the user wants 
-            to have (e.g., desired food, attractions, or activities).
+        Returns:
+            str: The identified concept in English
+        """
+        retrieved_docs = embedder.similarity_search(user_query, k=1, )
+        print(retrieved_docs)
+        print(f"Debug::::::::::: | {len(retrieved_docs)}")
+        serialized     = "\n\n".join(
+            (f"keyword: {doc.metadata["keyword"]}\ncontent: {doc.page_content}") for doc in retrieved_docs
+        )
 
-    Returns:
-        str: The identified concept in English, translated into the 
-            user's original query language.
-    """
-    # 일단은 더미 기능으로 유니코드 범위를 활용해서 언어 감지하는 값을 반환함
-    return "잘 되누."
+        return serialized, retrieved_docs
+    
+    return rag_object_searching_pipelining_entry
 
 @tool
 def rag_user_location_weather(address: str) -> str:
