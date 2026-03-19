@@ -1,0 +1,10 @@
+{
+    "dependencies": [
+        "./sysmsg.py",
+        "./tools.py"
+    ],
+    "graphs": {
+        "agent": "./entrypoint.py:app"  
+    },
+    "env": ".env"  
+}
