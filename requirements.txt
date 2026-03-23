@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlalchemy
+geoalchemy2
+psycopg2-binary
+pydantic
+python-multipart
+# AI & LangGraph 
+langchain
+langchain-core
+langchain-openai
+langgraph
+langsmith
