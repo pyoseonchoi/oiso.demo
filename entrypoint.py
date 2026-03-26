@@ -27,17 +27,16 @@ load_dotenv()
 # 보통 공공기관이 이런 멋들어진 언어모델 안쓰고 그냥 질문-답변 기반 챗봇 쓰는 이유가 다 비용 문제인데
 # 그게 좀 합리적인 수준에서 해결된다는걸 어필해보자
 model         = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7)
-translator    = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7) # 번역용
 text_embedder = embedder_initialize()
 
 # 선언한 툴들을 이렇게 넣어줘야 하는듯
-tools = [closure_rag_object_searching_pipelining_entry(text_embedder), rag_user_location_weather, rag_route_public_transport]
+tools = [closure_rag_object_searching_pipelining_entry(text_embedder), rag_user_location_weather, rag_route_public_transport, translate_ragged_data]
 tool_node = ToolNode(tools)
 
 # 툴 꽂아넣기
 model = model.bind_tools(tools)
 
-def should_continue(state: MessagesState) -> Literal["tool_n", END]:
+def should_continue(state: MessagesState):
     messages = state["messages"]
     last_message = messages[-1] # 파이썬에서 -1은 마지막
 
@@ -65,5 +64,6 @@ workflow.add_conditional_edges(
     should_continue,
     ["tool_n", END]
 )
+workflow.add_edge("tool_n", "main_model")
 
 app = workflow.compile()

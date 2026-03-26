@@ -1,6 +1,9 @@
 # (c) 2026 oiso.ai
 from langchain.tools import tool
 
+# 서브 에이전트 로드
+from agents import *
+
 # 중요 정보
 """
 우리가 함수를 작성 할 때 
@@ -36,7 +39,7 @@ def girlfriend(query: str) -> str:       < 일반 파이썬 하듯이 타입 명
 """
 def closure_rag_object_searching_pipelining_entry(embedder):
     @tool(response_format="content_and_artifact")
-    def rag_object_searching_pipelining_entry(user_query: str, user_language: str) -> str:
+    def rag_object_searching_pipelining_entry(user_query: str) -> str:
         """
         Maps a tourist's desired experience to a specific food, place, concept or entity.
 
@@ -46,14 +49,13 @@ def closure_rag_object_searching_pipelining_entry(embedder):
         Args:
             user_query (str): A description of the experience the user wants in the user's language.
                 to have (e.g., desired food, attractions, or activities).
-            user_language (str): Accepts the user's input language as a string, in English.
 
         Returns:
             str: The identified concept in English
         """
         retrieved_docs = embedder.similarity_search(user_query, k=1, )
-        print(retrieved_docs)
-        print(f"Debug::::::::::: | {len(retrieved_docs)}")
+        # print(retrieved_docs)
+        # print(f"Debug::::::::::: | {len(retrieved_docs)}")
         serialized     = "\n\n".join(
             (f"keyword: {doc.metadata["keyword"]}\ncontent: {doc.page_content}") for doc in retrieved_docs
         )
@@ -61,6 +63,39 @@ def closure_rag_object_searching_pipelining_entry(embedder):
         return serialized, retrieved_docs
     
     return rag_object_searching_pipelining_entry
+
+@tool
+def translate_ragged_data(user_language: str, rag_data: str) -> str:
+    """
+    Translates RAG-retrieved data into the user's spoken language.
+
+    This function accepts two types of inputs: the language spoken by the user 
+    and the data found through RAG (Retrieval-Augmented Generation). It translates 
+    the retrieved data into the user's language and returns the result.
+
+    Args:
+        user_language (str): The language spoken or inputted by the user.
+        rag_data (str): The data retrieved via the RAG system.
+
+    Returns:
+        str: The RAG data translated into the user's spoken language.
+    """
+    result = translator_agent.invoke({
+        "messages": [
+            {
+                "role": "user",
+                "content": f"""<user_language>
+{user_language}
+</user_language>
+<translation_target>
+{rag_data}
+</translation_target>
+"""
+            }
+        ]
+    })
+
+    return result["messages"][-1].text
 
 @tool
 def rag_user_location_weather(address: str) -> str:

@@ -10,36 +10,17 @@ def closure_main_llm_call(model_that_has_tools):
                 model_that_has_tools.invoke(
                     [
                         SystemMessage(
-                            content="""You act as a travel agent who communicates in the user's speaking language. 
-To bring the journey to life, you retain the original names of local attractions, ensuring the authentic atmosphere of the trip shines through."""
-                        )
-                    ]
-                    + state["messages"]
-                )
-            ],
-            "llm_calls": state.get('llm_calls', 0) + 1
-        }
-    
-    return llm_call
+                            content="""
+1. **Role**: You are a multilingual local travel agent. To bring the journey to life, you must retain the original names of local attractions, ensuring the authentic atmosphere of the trip shines through.
 
-def closure_translator_llm_call(model_that_translates):
-    def llm_call(state: dict):
-        return {
-            "messages": [
-                model_that_translates.invoke(
-                    [
-                        SystemMessage(
-                            content="""You will receive input in the following format:
+2. **Functional Responsibilities**: While you can provide simple answers, you must perform the following specialized roles when applicable:
+    - 2.1. **Specification via RAG (Retrieval-Augmented Generation)**: When a user describes a specific food or location, retrieve relevant information using the RAG tool. 
+        - If the language of the retrieved content matches the user's speaking language, output the information as is.
+        - If the languages do not match, process the content through a translation tool first, then output the result based on that translation.
+    - 2.2. **Geographic Information-Based Recommendations**: (Note: This feature is currently under development and not yet implemented).
 
-<user_language>
-The user's native language
-</user_language>
-<translation_target>
-The content to be translated
-</translation_target>
-
-Your task is to translate the text within the <translation_target> tags into the language specified in the <user_language> tags. 
-Do not provide any text, explanations, or commentary other than the translation itself."""
+3. **Tone and Manner**: Your responses must always remain polite and professional. However, if the user expresses a desire for a friendlier or more intimate atmosphere, you may use informal language (such as Korean 'banmal') while still maintaining a baseline of courtesy and respect.
+"""
                         )
                     ]
                     + state["messages"]
