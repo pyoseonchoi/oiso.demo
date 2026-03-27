@@ -2,8 +2,12 @@
 
 ---
 
-# LangGraph 기반 백엔드
+## 주의사항
+- agents 폴더는 LangGraph 인스턴스용 폴더임
+- 원칙적으로 Agent 서버에 FastAPI 서버가 API 기반 요청을 날리는 구조임
 
-- langgraph.json이 엔트리 포인트!
-- .env 잊어버렸으면 김정우에게 요청!
-- langgraph.json에 dependencies는 node.js같은게 아니라 파일 종속성? 사용할 파이썬 라이브러리인듯
+# 버전 업데이트 기록
+## alpha-stage
+- LangGraph, LangSmith 기반 RAG 구현
+## beta-stage
+- 26-03-27 0.1.0 FastAPI 접목 베이스 코드 작성

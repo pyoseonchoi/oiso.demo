@@ -1,15 +1,15 @@
 {
-    "dependencies": [
-        "./sysmsg.py",
-        "./tools.py",
-        "./embeddings_text.py"
-    ],
-    "graphs": {
-        "agent": "./entrypoint.py:app"  
-    },
-    "env": ".env",
-    "http": {
-    "cors": {
+  "dependencies": [
+      "./sysmsg.py",
+      "./tools.py",
+      "./embeddings_text.py"
+  ],
+  "graphs": {
+      "agent": "./entrypoint.py:app"  
+  },
+  "env": ".env",
+  "http": {
+  "cors": {
       "allow_origins": [
         "https://smith.langchain.com",
         "https://eu.smith.langchain.com"

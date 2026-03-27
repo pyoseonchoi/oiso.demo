@@ -1,8 +1,7 @@
 # (c) 2026 oiso.ai
 from langchain.tools import tool
 
-# 서브 에이전트 로드
-from agents import *
+from agents.translator import *
 
 # 중요 정보
 """

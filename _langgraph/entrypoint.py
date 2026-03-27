@@ -5,21 +5,21 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.types import Command
-
-# 환경변수 이렇게 로드
 from dotenv import load_dotenv
 
+load_dotenv("../.env")
+
+# 모델 로드
+from rags.embeddings_text import *
+
+# 에이전트들 여기서 로드
+from agents.translator import *
+
 # 툴들 여기서 로드
-from tools import *
+from tools.tools import *
 
 # 시스템 프롬프트 여기서 로드
-from sysmsg import *
-
-# 텍스트 임베더 로드
-from embeddings_text import *
-
-# 이걸 해야 비로소 환경변수 로드
-load_dotenv()
+from llm_configs.sysmsg import *
 
 # 모델을 아마 langchain_huggingface
 # https://docs.langchain.com/oss/python/integrations/providers/overview
