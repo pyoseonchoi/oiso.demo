@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from backend.crud.api.v1.endpoints import chat
+from backend.crud.api.v1.endpoints.chat import chat
 
 v1_router = APIRouter()
 
