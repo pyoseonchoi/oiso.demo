@@ -1,8 +1,6 @@
 # (c) 2026 oiso.ai
 from langchain.tools import tool
 
-from agents.translator import *
-
 # 중요 정보
 """
 우리가 함수를 작성 할 때 
