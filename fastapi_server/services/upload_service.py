@@ -1,17 +1,20 @@
+
 from uuid import uuid4
 from fastapi import UploadFile
 from pathlib import Path
-from schemas.upload_schema import FileUploadResponse, ImageMetaData
-
+from schemas.upload_schema import FileUploadResponse, ImageMetaDataSchema
+from sqlalchemy.orm import Session
 from core.config import settings
 from core.storage import get_s3_client
 
-from PIL import Image
+from PIL import Image as PILImage
 from PIL.ExifTags import IFD
+from services.marker_service import create_marker_from_image
+from models.upload_model import Image, ImageMetaData
 
 
 
-def save_file(file: UploadFile) -> FileUploadResponse:
+def save_file(file: UploadFile, db: Session) -> FileUploadResponse:
     ext = Path(file.filename).suffix if file.filename else ""
     saved_name = f"{uuid4()}{ext}"
 
@@ -36,6 +39,35 @@ def save_file(file: UploadFile) -> FileUploadResponse:
     # 기본 URL 구조: 통신주소/버킷이름/파일이름
     file_url = f"{settings.MINIO_ENDPOINT_URL}/{bucket_name}/{saved_name}"
 
+
+
+    #추가: DB 저장
+    db_image = Image(
+        original_filename=file.filename,
+        saved_filename=saved_name,
+        file_url = file_url,
+    )
+    db.add(db_image)
+    db.flush()
+
+    #메타 데이터 있으면 별도로 추가
+    if extract_meta:
+        db_meta = ImageMetaData(
+            image_id=db_image.id,
+            latitude=extract_meta.latitude,
+            longitude=extract_meta.longitude,
+            captured_at=extract_meta.captured_at,
+        )
+        db.add(db_meta)
+
+
+    #마커 생성 호출
+    if extract_meta and extract_meta.latitude and extract_meta.longitude:
+        create_marker_from_image(db, db_image, db_meta)
+
+
+    db.commit()
+
     return FileUploadResponse(
         original_filename = file.filename,
         saved_filename=saved_name,
@@ -55,10 +87,10 @@ def convert_to_degrees(value):
     return d + (m / 60.0) + (s / 3600.0)
 
 
-def extract_metadata(file: UploadFile) -> ImageMetaData | None:
+def extract_metadata(file: UploadFile) -> ImageMetaDataSchema | None:
     try:
 
-        img = Image.open(file.file)
+        img = PILImage.open(file.file)
         exif = img.getexif()
 
 
@@ -88,7 +120,7 @@ def extract_metadata(file: UploadFile) -> ImageMetaData | None:
 
         if latitude is not None or longitude is not None or captured_at is not None:
 
-            return ImageMetaData(
+            return ImageMetaDataSchema(
                 latitude=latitude,
                 longitude=longitude,
                 captured_at=captured_at

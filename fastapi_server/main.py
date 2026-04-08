@@ -11,10 +11,8 @@ from api.v1.api import api_router
 from db.base import Base
 from db.session import engine
 
-from models import post_model
-from models import chat_message_model
-from models import chat_session_model
-from models import store_model
+from models import post_model, chat_message_model, chat_session_model, marker_model, upload_model
+
 
 Base.metadata.create_all(bind = engine)
 

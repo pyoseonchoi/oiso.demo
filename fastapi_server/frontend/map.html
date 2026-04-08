@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OISO - 전통시장 지도</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="map.css">
+</head>
+<body>
+
+    <!-- 상단 헤더 -->
+    <header class="header" id="header">
+        <div class="header-inner">
+            <div class="logo">
+                <span class="logo-icon">📍</span>
+                <h1>OISO Map</h1>
+            </div>
+            <div class="header-stats">
+                <div class="stat-chip" id="marker-count-chip">
+                    <span class="stat-icon">🏪</span>
+                    <span id="marker-count">0</span> 마커
+                </div>
+                <div class="stat-chip" id="image-count-chip">
+                    <span class="stat-icon">📷</span>
+                    <span id="image-count">0</span> 이미지
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 지도 영역 -->
+    <div id="map"></div>
+
+    <!-- 마커 상세 패널 (슬라이드 업) -->
+    <div class="detail-panel" id="detail-panel">
+        <div class="panel-handle" id="panel-handle">
+            <div class="handle-bar"></div>
+        </div>
+        <div class="panel-content" id="panel-content">
+            <div class="panel-header">
+                <h2 id="panel-title">마커 상세</h2>
+                <button class="btn-close" id="panel-close">&times;</button>
+            </div>
+            <div class="panel-tags" id="panel-tags"></div>
+            <div class="panel-meta">
+                <div class="meta-item">
+                    <span class="meta-label">📍 좌표</span>
+                    <span class="meta-value" id="panel-coords">-</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">📷 이미지</span>
+                    <span class="meta-value" id="panel-img-count">0장</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">📅 생성일</span>
+                    <span class="meta-value" id="panel-date">-</span>
+                </div>
+            </div>
+            <div class="panel-images" id="panel-images">
+                <!-- 이미지들이 여기에 삽입됨 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 로딩 오버레이 -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <p>마커를 불러오는 중...</p>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="map.js"></script>
+</body>
+</html>
