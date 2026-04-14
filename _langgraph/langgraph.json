@@ -1,13 +1,11 @@
 {
   "dependencies": [
-      "./sysmsg.py",
-      "./tools.py",
-      "./embeddings_text.py"
+      "./*"
   ],
   "graphs": {
       "agent": "./entrypoint.py:app"  
   },
-  "env": ".env",
+  "env": "../.env",
   "http": {
   "cors": {
       "allow_origins": [
