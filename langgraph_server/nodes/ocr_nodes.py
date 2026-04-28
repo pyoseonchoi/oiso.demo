@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-
+from prompts import ocr_prompts
 
 # Pydantic 출력 스키마 정의
 # LLM이 어떤 형태로 결과를 뱉어야하는지 정의함 (description이 중요 - LLM이 이거 읽고 판단)
@@ -43,3 +43,44 @@ def call_ocr_node(state: OCRAgentState):
     result = structured_llm.invoke([message])
     return {"ocr_result": result.model_dump()}
 
+
+def validate_image_node(state: OCRAgentState):
+    """
+    첨부된 이미지가 메뉴판이 맞는지 검증하는 노드
+    """ 
+
+    llm = ChatOpenAI(model = "gpt-4.1-mini", temperature=0, timeout = 30.0)
+    system_prompt = ocr_prompts.get_validate_image_prompt()
+    
+    #State에서 이미지 가져와서 HumanMessage 구성
+    human_message = HumanMessage(content=[
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{state['image_b64']}"}}
+    ])
+    
+    #함께 invoke
+    msg = llm.invoke([system_prompt, human_message])
+
+    error_message = ""
+    is_valid = True
+
+    result_text = msg.content.strip().upper() 
+    
+    if "NO" in result_text:
+        error_message = "메뉴판 이미지가 아닙니다. 다시 확인해 주세요."
+        is_valid = False
+    elif "BLURRY" in result_text:
+        error_message = "이미지가 너무 흐립니다. 흔들리지 않게 다시 촬영해 주세요."
+        is_valid = False
+    
+    return {"is_valid": is_valid, "error_message": error_message}
+
+
+def check_validity(state: OCRAgentState) -> str:
+    """
+    사진이 유효한지 검증하는 gate function
+    """
+
+    if state["is_valid"]:
+        return "Pass"
+    else:
+        return "Fail"

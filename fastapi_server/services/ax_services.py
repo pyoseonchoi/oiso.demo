@@ -1,5 +1,5 @@
 from langgraph_sdk import get_client
-
+from exceptions.base import AppException
 
 client = get_client(url = "http://127.0.0.1:2024")
 
@@ -17,7 +17,17 @@ async def run_ocr_agent(image_b64: str, user_language: str) -> dict:
         }
     )
 
-    # runs.wait()는 최종 State를 dict로 반환
-    ocr_result = run["ocr_result"]
+    #최종 State에서 검증된 결과를 추출함
+    is_valid = run.get("is_valid", True)
+    error_message = run.get("error_message", "")
 
-    return ocr_result
+    
+    if not is_valid:
+        raise AppException(
+            status_code=400,
+            reason=error_message
+        )
+
+    # 정상이면 ocr_result반환
+
+    return run.get("ocr_result", {})
