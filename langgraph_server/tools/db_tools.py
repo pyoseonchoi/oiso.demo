@@ -16,57 +16,60 @@ def haversine(lat1, lon1, lat2, lon2):
 @tool
 def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float = 1.0) -> str:
     """
-    Search for nearby stores that sell a specific food or item based on a Korean tag.
-    
+    Search for nearby photo clusters that are tagged with a specific Korean keyword.
+
     Args:
-        tag_name (str): The Korean name of the food or item (e.g., "떡볶이", "김밥").
+        tag_name (str): The Korean tag to search for (e.g., "떡볶이", "김밥").
         lat (float): The latitude of the user's current location.
         lng (float): The longitude of the user's current location.
         radius_km (float): The search radius in kilometers (default is 1.0).
-        
+
     Returns:
-        str: A JSON-formatted string containing a list of nearby stores (name, distance, etc.),
-             or a message indicating that no stores were found.
+        str: A JSON-formatted string containing a list of nearby clusters (cluster_no, tags, distance),
+             or a message indicating that no clusters were found.
     """
-    # 환경변수에서 직접 DB URL을 가져오거나 테스트된 내(표선) PostgreSQL 접속 주소를 사용
     db_url = os.getenv("DATABASE_URL")
-    # 연결 타임아웃 5초 설정
     engine = create_engine(db_url, connect_args={"connect_timeout": 5})
-    
+
     try:
         with engine.connect() as conn:
-            # 입력받은 태그와 연관된 Store 정보들을 추출
+            # cluster_tags로 태그와 연결된 cluster_array 조회
+            # tags 테이블의 PK가 tagstring(문자열)이므로 직접 비교
             query = text('''
-                SELECT s.id, s.name, s.latitude, s.longitude
-                FROM stores s
-                JOIN store_tag_association sta ON s.id = sta.store_id
-                JOIN tags t ON sta.tag_id = t.id
-                WHERE t.name = :tag_name
+                SELECT ca.clusterno, ca.latitude, ca.longitude,
+                       array_agg(ct2.tag) AS all_tags
+                FROM cluster_array ca
+                JOIN cluster_tags ct ON ca.clusterno = ct.cluster_no
+                JOIN cluster_tags ct2 ON ca.clusterno = ct2.cluster_no
+                WHERE ct.tag = :tag_name
+                GROUP BY ca.clusterno, ca.latitude, ca.longitude
             ''')
             result = conn.execute(query, {"tag_name": tag_name}).fetchall()
-            
-            nearby_stores = []
+
+            nearby_clusters = []
             for row in result:
-                store_lat = row[2] # latitude
-                store_lng = row[3] # longitude
-                
-                # Haversine으로 유저 위치와 DB 매장 위치 사이의 실제 거리 계산
-                distance = haversine(lat, lng, store_lat, store_lng)
-                
+                cluster_no  = row[0]
+                cluster_lat = row[1]
+                cluster_lng = row[2]
+                all_tags    = row[3]  # 해당 클러스터의 모든 태그 목록
+
+                distance = haversine(lat, lng, cluster_lat, cluster_lng)
+
                 if distance <= radius_km:
-                    nearby_stores.append({
-                        "id": row[0],
-                        "name": row[1],
+                    nearby_clusters.append({
+                        "cluster_no": cluster_no,
+                        "tags": all_tags,        # AI가 어떤 곳인지 설명하는 데 사용
                         "distance_km": round(distance, 2)
                     })
-            
+
             # 거리가 가까운 순서대로 정렬 (오름차순)
-            nearby_stores.sort(key=lambda x: x["distance_km"])
-            
-            if not nearby_stores:
-                return f"No stores found within {radius_km}km for the tag '{tag_name}'."
-            
-            return json.dumps(nearby_stores, ensure_ascii=False)
-            
+            nearby_clusters.sort(key=lambda x: x["distance_km"])
+
+            if not nearby_clusters:
+                return f"No clusters found within {radius_km}km for the tag '{tag_name}'."
+
+            return json.dumps(nearby_clusters, ensure_ascii=False)
+
     except Exception as e:
         return f"Error while searching the database: {str(e)}"
+

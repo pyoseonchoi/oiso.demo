@@ -1,3 +1,4 @@
+import traceback
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -36,6 +37,9 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
 
 
 def unexpected_exception_handler(request: Request, exc: Exception):
+    # 터미널에 실제 에러 출력 (개발 중 디버깅용)
+    print(f"\n[500 ERROR] {request.method} {request.url}")
+    traceback.print_exc()
     return JSONResponse(
         status_code=500,
         content={

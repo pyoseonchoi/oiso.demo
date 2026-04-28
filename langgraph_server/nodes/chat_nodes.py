@@ -42,19 +42,11 @@ def call_main_agent(state: ChatAgentState):
     user_lang = state.get("user_language", "English")
     enhanced_q = state.get("enhanced_query", "")
     
-    sys_msg = get_main_agent_prompt(user_lang, enhanced_q)
+    sys_msg = get_main_agent_prompt(user_lang, enhanced_q, state.get("client_lat", 0.0), state.get("client_lng", 0.0))
     
     messages = [sys_msg] + [m for m in state["messages"] if not isinstance(m, SystemMessage)]
     
     response = model_with_tools.invoke(messages)
-    
-    # 툴 호출 시 좌표 강제 삽입 방어 로직
-    if getattr(response, 'tool_calls', None):
-        for tool_call in response.tool_calls:
-            if tool_call["name"] == "search_nearby_stores":
-                tool_call["args"]["lat"] = state.get("client_lat", 0.0)
-                tool_call["args"]["lng"] = state.get("client_lng", 0.0)
-                
     return {"messages": [response]}
 
 

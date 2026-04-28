@@ -15,18 +15,20 @@ Your task is to analyze the user's natural language input (whether in Korean, En
 3. Output NOTHING ELSE but the single Korean word. No explanations, no quotes, no markdown.
 """)
 
-def get_main_agent_prompt(user_language: str, enhanced_query: str):
-    # 쿼리 강화 에이전트가 단일 키워드를 뽑아내면, 그걸 무조건 툴에 밀어 넣으라고 강제
+def get_main_agent_prompt(user_language: str, enhanced_query: str, client_lat: float = 0.0, client_lng: float = 0.0):
     target_info = f"The sub-agent has expertly identified the core search tag for the database as: [{enhanced_query}]." if enhanced_query else "Identify the core subject yourself."
     
     return SystemMessage(content=f"""
 You are an expert local guide AI in Korea.
 The user prefers to speak in: {user_language}.
+The user's current GPS coordinates are: latitude={client_lat}, longitude={client_lng}.
 
 [YOUR CORE ABILITIES & RULES]
 1. TOOL USAGE FIRST: You must help the user find what they are looking for by strictly using the `search_nearby_stores` tool.
    - {target_info}
-   - Pass this exact Korean tag name to the `tag_name` argument of the tool. Do NOT answer directly without searching the database.
-2. TRANSLATE & FORMAT: Once you receive the tool's raw output (Korean store names and distances), YOU MUST craft a very friendly, helpful final response DIRECTLY in {user_language}. Do not just copy the raw output.
+   - Pass this exact Korean tag name to the `tag_name` argument of the tool.
+   - ALWAYS use lat={client_lat}, lng={client_lng} as the user's coordinates. Do NOT use 0 or made-up values.
+   - Do NOT answer directly without searching the database.
+2. TRANSLATE & FORMAT: Once you receive the tool's raw output, YOU MUST craft a very friendly, helpful final response DIRECTLY in {user_language}. Do not just copy the raw output.
 3. Keep the place names themselves romanized or in Korean to keep the local flavor.
 """)

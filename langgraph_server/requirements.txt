@@ -4,5 +4,6 @@ langchain-openai
 langgraph
 pydantic
 sqlalchemy
+psycopg2-binary
 python-dotenv
 langgraph-cli[inmem]

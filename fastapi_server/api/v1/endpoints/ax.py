@@ -20,15 +20,17 @@ async def chat_v2(request: ChatV2Request):
     """
     유저 메시지를 LangGraph Chat Agent로 전달하고 AI 응답을 반환합니다.
 
-    - 현재: 더미 응답 반환
-    - 추후: LangGraph HTTP 요청 + DB 저장 (UserMessage / AIMessage)
+    - uuid를 LangGraph thread_id로 활용 → 같은 uuid이면 대화 기록이 이어짐 (멀티턴)
+    - chat_agent 내부적으로 query_enhancer → main_agent → DB 검색 툴 순서로 실행
     """
-    # TODO: uuid로 ChatSession 조회/생성 → LangGraph httpx 요청 → DB 저장
-    dummy_reply = (
-        f"[더미 응답] uuid={request.uuid} | "
-        f"메시지 수신: '{request.user_added_message}'"
+    ai_response = await ax_services.run_chat_agent(
+        thread_id=request.uuid,
+        user_message=request.user_added_message,
+        user_language=request.user_language,
+        client_lat=request.client_lat,
+        client_lng=request.client_lng,
     )
-    return ChatV2Response(response=dummy_reply)
+    return ChatV2Response(response=ai_response)
 
 
 @router.post("/get_picnorder", response_model=PicNOrderResponse)
