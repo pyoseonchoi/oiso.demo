@@ -23,11 +23,11 @@ from exceptions.handlers import (
 )
 from models import mx_model
 
-# Database initialization
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    print(f"[WARNING] Database connection failed (server will continue): {e}")
+# Database initialization -> Alembic으로 대체
+# try:
+#     Base.metadata.create_all(bind=engine)
+# except Exception as e:
+#     print(f"[WARNING] Database connection failed (server will continue): {e}")
 
 # App lifecycle configuration
 @asynccontextmanager
