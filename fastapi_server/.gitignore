@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -13,6 +13,7 @@ venv/
 # Env files
 .env
 .env.*
+!.env.example
 
 # Tool caches
 .pytest_cache/
