@@ -59,4 +59,8 @@ app.add_exception_handler(Exception, unexpected_exception_handler)
 # Routers
 app.include_router(v1_router, prefix="/v1")  # 신버전 라우터 (dx / ax / mx)
 
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """AWS 등에서 서버 상태를 확인하기 위한 헬스 체크 엔드포인트"""
+    return {"status": "ok"}
 
