@@ -13,7 +13,6 @@ load_dotenv()
 from api.v1.api import v1_router
 from core.storage import init_storage
 from db.base import Base
-from db.session import engine
 from exceptions.base import AppException
 from exceptions.handlers import (
     app_exception_handler,

@@ -5,6 +5,24 @@ import os
 import json
 from sqlalchemy import create_engine, text
 
+_engine = None
+
+def get_engine():
+    """DB 엔진을 싱글톤으로 지연 생성하고, 배포용 커넥션 풀 최적화 적용"""
+    global _engine
+    if _engine is None:
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            _engine = create_engine(
+                db_url, 
+                connect_args={"connect_timeout": 5},
+                pool_pre_ping=True,  # RDS 끊김 방지용 ping
+                pool_recycle=3600,   # 1시간마다 커넥션 초기화
+                pool_size=5,         # LangGraph 전용 풀 사이즈
+                max_overflow=10
+            )
+    return _engine
+
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 # 지구 반지름 (km)
     dLat = math.radians(lat2 - lat1)
@@ -28,8 +46,9 @@ def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float
         str: A JSON-formatted string containing a list of nearby clusters (cluster_no, tags, distance),
              or a message indicating that no clusters were found.
     """
-    db_url = os.getenv("DATABASE_URL")
-    engine = create_engine(db_url, connect_args={"connect_timeout": 5})
+    engine = get_engine()
+    if engine is None:
+        return "Error: DATABASE_URL environment variable is not set."
 
     try:
         with engine.connect() as conn:
