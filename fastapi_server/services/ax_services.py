@@ -1,8 +1,9 @@
 import uuid
 from langgraph_sdk import get_client
 from exceptions.base import AppException
+from core.config import settings
 
-client = get_client(url="http://127.0.0.1:2024")
+client = get_client(url=settings.LANGGRAPH_SERVER_URL)
 
 
 async def run_ocr_agent(image_b64: str, user_language: str) -> dict:

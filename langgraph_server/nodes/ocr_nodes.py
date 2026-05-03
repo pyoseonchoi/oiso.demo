@@ -1,9 +1,11 @@
 from states.ocr_state import OCRAgentState
 from pydantic import BaseModel, Field
 from typing import List
-from langchain_openai import ChatOpenAI
+
 from langchain_core.messages import HumanMessage
 from prompts import ocr_prompts
+
+from config.llm import extraction_model
 
 # Pydantic 출력 스키마 정의
 # LLM이 어떤 형태로 결과를 뱉어야하는지 정의함 (description이 중요 - LLM이 이거 읽고 판단)
@@ -27,7 +29,8 @@ class OCRInformation(BaseModel):
 def call_ocr_node(state: OCRAgentState):
     # 이미지 보낼 메시지 구성 -> with_structured_ouput으로 OCROutput 강제 -> 결과를 state에 반환
 
-    structured_llm = ChatOpenAI(model = "gpt-4.1-mini", temperature=0).with_structured_output(OCRInformation)
+    # extraction_model 재사용 
+    structured_llm = extraction_model.with_structured_output(OCRInformation)
     
     user_lang = state["user_language"] 
 
@@ -49,7 +52,7 @@ def validate_image_node(state: OCRAgentState):
     첨부된 이미지가 메뉴판이 맞는지 검증하는 노드
     """ 
 
-    llm = ChatOpenAI(model = "gpt-4.1-mini", temperature=0, timeout = 30.0)
+    llm = extraction_model
     system_prompt = ocr_prompts.get_validate_image_prompt()
     
     #State에서 이미지 가져와서 HumanMessage 구성
