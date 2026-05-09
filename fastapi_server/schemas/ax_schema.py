@@ -4,7 +4,10 @@ from schemas.base_schema import BaseSuccessResponse
 
 # ─── /v1/ax/chat ────────────────────────────────────────────────
 
+# NOTE: ChatV2Request는 multipart/form-data로 전환되어 직접 사용되지 않음
+# Form 필드로 개별 인자를 받으며, 이미지 첨부(pics)도 지원
 class ChatV2Request(BaseModel):
+    """[Deprecated] JSON body 방식 — 현재는 Form 기반으로 전환됨"""
     uuid: str                  # 대화 세션 식별 UUID → LangGraph thread_id로 사용
     user_added_message: str    # 유저 메시지
     user_language: str         # 응답 언어 (예: "Korean", "English", "Japanese")

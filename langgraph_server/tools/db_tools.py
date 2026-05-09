@@ -52,16 +52,16 @@ def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float
 
     try:
         with engine.connect() as conn:
-            # cluster_tags로 태그와 연결된 cluster_array 조회
-            # tags 테이블의 PK가 tagstring(문자열)이므로 직접 비교
+            # tag_list로 태그와 연결된 cluster_array 조회
+            # tags 테이블의 PK가 tag_string(문자열)이므로 직접 비교
             query = text('''
-                SELECT ca.clusterno, ca.latitude, ca.longitude,
+                SELECT ca.cluster_no, ca.latitude, ca.longitude,
                        array_agg(ct2.tag) AS all_tags
                 FROM cluster_array ca
-                JOIN cluster_tags ct ON ca.clusterno = ct.cluster_no
-                JOIN cluster_tags ct2 ON ca.clusterno = ct2.cluster_no
+                JOIN tag_list ct ON ca.cluster_no = ct.cluster_no
+                JOIN tag_list ct2 ON ca.cluster_no = ct2.cluster_no
                 WHERE ct.tag = :tag_name
-                GROUP BY ca.clusterno, ca.latitude, ca.longitude
+                GROUP BY ca.cluster_no, ca.latitude, ca.longitude
             ''')
             result = conn.execute(query, {"tag_name": tag_name}).fetchall()
 

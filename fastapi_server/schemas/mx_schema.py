@@ -9,7 +9,7 @@ class MarkerItem(BaseModel):
     latitude: str
     cluster_no: int
     cluster_tags: List[str]
-    cluster_pics_lowres_url: str  # MinIO URL (lowres 이미지)
+    cluster_pics_lowres_url: str  # DB Image.s3_key로부터 동적 생성 (CDN/MinIO URL)
 
 
 class GetMarkersResponse(BaseSuccessResponse):
@@ -21,7 +21,7 @@ class GetMarkersResponse(BaseSuccessResponse):
 class PostItem(BaseModel):
     image_id: str
     image_tags: List[str]
-    pic_highres_url: str          # MinIO URL (highres 이미지)
+    pic_highres_url: str          # DB Image.s3_key로부터 동적 생성 (CDN/MinIO URL)
 
 
 class MarkerInfosResponse(BaseSuccessResponse):

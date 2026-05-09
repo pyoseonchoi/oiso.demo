@@ -26,16 +26,15 @@ from exceptions.handlers import (
     unexpected_exception_handler,
 )
 from models import mx_model
+from models import ax_model
 
 import time
 import logging
 from fastapi import Request
 
-# Database initialization -> Alembic으로 대체
-# try:
-#     Base.metadata.create_all(bind=engine)
-# except Exception as e:
-#     print(f"[WARNING] Database connection failed (server will continue): {e}")
+# Database initialization → Alembic으로 관리
+# create_all은 Alembic 마이그레이션 이력과 충돌할 수 있으므로 사용하지 않음
+# Base.metadata.create_all(bind=get_engine())
 
 # App lifecycle configuration
 @asynccontextmanager

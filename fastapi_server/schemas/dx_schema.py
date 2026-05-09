@@ -10,10 +10,10 @@ class ImageMetaData(BaseModel):
 
 class PicUploadResponse(BaseSuccessResponse):
     picture_url: str = ""  # 업로드된 원본 이미지의 MinIO URL
+    picture_id: str        # DB에 생성된 Picture의 unique_id
     s3_bucket: str
     s3_key: str
     s3_version: str | None = None
-    s3_uri: str
     metadata: ImageMetaData
 
 

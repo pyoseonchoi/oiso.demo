@@ -1,6 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 from fastapi import UploadFile
+from sqlalchemy.orm import Session
 from core.config import settings
 from core.storage import get_s3_client, get_bucket_name
 from botocore.client import BaseClient
@@ -11,8 +12,10 @@ DEFAULT_PRESIGNED_URL_EXPIRES_IN = 60 * 10
 from exceptions.http import BadRequestException, StorageException
 
 from datetime import datetime
-from PIL import Image, ExifTags
+from PIL import Image as PILImage, ExifTags
 from PIL.ExifTags import IFD
+
+from models.mx_model import Image, Metadata, Picture
 
 def _dms_to_decimal(dms: tuple, ref: str) -> float:
     """
@@ -44,7 +47,7 @@ def extract_image_metadata(file_obj) -> dict:
 
     try:
         file_obj.seek(0)
-        image = Image.open(file_obj)
+        image = PILImage.open(file_obj)
         exif = image.getexif()
 
         if not exif:
@@ -113,13 +116,12 @@ def build_presigned_picture_url(
     )
 
 
-def upload_picture(image: UploadFile) -> dict:
+def upload_picture(image: UploadFile, db: Session) -> dict:
     """
-    이미지를 S3(MinIO)에 업로드하고 URL 반환
+    이미지를 S3(MinIO)에 업로드하고, DB에 Image/Metadata/Picture 레코드 생성 후 URL 반환
     """
 
     if not image.filename:
-        #이런식으로 Exception던지는게 가능
         raise BadRequestException(reason="업로드할 파일명이 존재하지 않습니다.")
 
     if not image.content_type or not image.content_type.startswith("image/"):
@@ -133,11 +135,10 @@ def upload_picture(image: UploadFile) -> dict:
         s3_client = get_s3_client()
         bucket_name = get_bucket_name()
 
-
         # 이미지 메타데이터 추출
-        metadata = extract_image_metadata(image.file)
+        meta_dict = extract_image_metadata(image.file)
 
-        # 이미지 업로드
+        # S3 업로드
         s3_client.upload_fileobj(
             image.file,
             bucket_name,
@@ -146,27 +147,59 @@ def upload_picture(image: UploadFile) -> dict:
         )
 
         s3_version = None
-        s3_uri = f"s3://{bucket_name}/{s3_key}"
-        
 
+        # 프론트 미리보기용 URL
         picture_url = build_presigned_picture_url(
             s3_client=s3_client,
             bucket_name=bucket_name,
             s3_key=s3_key,
-            )
+        )
 
+        # ─── DB 저장: Image → Metadata → Picture ───────────────
+        image_id = str(uuid4())
+        metadata_id = str(uuid4())
+        picture_id = str(uuid4())
 
+        # 1) Image 레코드
+        db_image = Image(
+            unique_id=image_id,
+            s3_bucket=bucket_name,
+            s3_key=s3_key,
+            s3_version=s3_version,
+        )
+        db.add(db_image)
+
+        # 2) Metadata 레코드
+        db_metadata = Metadata(
+            unique_id=metadata_id,
+            longitude=meta_dict.get("longitude"),
+            latitude=meta_dict.get("latitude"),
+            time_stamp=meta_dict.get("time_stamp"),
+        )
+        db.add(db_metadata)
+
+        # 3) Picture 레코드 (Image + Metadata 연결)
+        db_picture = Picture(
+            unique_id=picture_id,
+            created_date=datetime.utcnow(),
+            image_id=image_id,
+            metadata_id=metadata_id,
+        )
+        db.add(db_picture)
+
+        db.commit()
 
         return {
-            # picture_url은 프론트 미리보기용, DB저장 X
             "picture_url": picture_url,
+            "picture_id": picture_id,
             "s3_bucket": bucket_name,
             "s3_key": s3_key,
             "s3_version": s3_version,
-            "s3_uri": s3_uri,
-            "metadata": metadata
+            "metadata": meta_dict,
         }
 
+    except BadRequestException:
+        raise
     except Exception as e:
+        db.rollback()
         raise StorageException(reason=f"파일 업로드에 실패했습니다. ({str(e)})")
-        

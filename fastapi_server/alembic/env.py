@@ -11,6 +11,7 @@ from db.base import Base
 # 모델 import가 중요함
 # 이 import를 해야 Base.metadata에 테이블 정보가 등록됨
 from models import mx_model  # noqa: F401
+from models import ax_model  # noqa: F401
 
 
 config = context.config
