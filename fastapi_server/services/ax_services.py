@@ -85,3 +85,83 @@ async def run_chat_agent(
     if isinstance(last_message, dict):
         return last_message.get("content", "")
     return getattr(last_message, "content", "")
+
+
+async def stream_chat_agent(
+    thread_id: str,
+    user_message: str,
+    user_language: str,
+    client_lat: float,
+    client_lng: float,
+):
+    """
+    main_agent의 텍스트 토큰만 골라서 delta(증분) 문자열을 yield하는 제너레이터.
+    
+    로그 분석 결과:
+    - messages/metadata : 어떤 노드에서 온 메시지인지 ID 등록
+    - messages/partial  : 누적 content (delta 아님!) → 이전값과 비교해서 새 글자만 추출
+    - tool_calls 있는 청크 : content='' → 무시
+    """
+    _NAMESPACE = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    lg_thread_id = str(uuid.uuid5(_NAMESPACE, thread_id))
+
+    try:
+        thread = await client.threads.get(lg_thread_id)
+        if thread.get("status") in ("error", "interrupted"):
+            await client.threads.delete(lg_thread_id)
+            await client.threads.create(thread_id=lg_thread_id)
+    except Exception:
+        await client.threads.create(thread_id=lg_thread_id)
+
+    # ── 핵심 상태 추적 변수 ──────────────────────────────
+    # { message_id: "main_agent" } 형태로 main_agent 소속 메시지 ID 등록
+    main_agent_msg_ids: set[str] = set()
+    # { message_id: 마지막으로_전송한_content } 누적값 → delta 계산용
+    last_content: dict[str, str] = {}
+    # ────────────────────────────────────────────────────
+
+    async for chunk in client.runs.stream(
+        lg_thread_id,
+        "chat_agent",
+        input={
+            "messages": [{"role": "human", "content": user_message}],
+            "user_language": user_language,
+            "client_lat": client_lat,
+            "client_lng": client_lng,
+        },
+        stream_mode="messages",
+    ):
+        event = chunk.event
+        data  = chunk.data
+
+        # ── 1. 노드 정보 등록 ─────────────────────────────
+        if event == "messages/metadata":
+            # 로그 형식: data = { "msg_id": { "metadata": { "langgraph_node": "...", ... } } }
+            for msg_id, info in data.items():
+                node = info.get("metadata", {}).get("langgraph_node", "")
+                if node == "main_agent":
+                    main_agent_msg_ids.add(msg_id)
+
+        # ── 2. 토큰 스트리밍 ──────────────────────────────
+        elif event == "messages/partial":
+            # data = [ { id, content, tool_calls, type, ... } ]
+            for msg in data:
+                msg_id    = msg.get("id", "")
+                content   = msg.get("content", "")
+                tool_calls = msg.get("tool_calls", [])
+
+                # main_agent 소속 메시지만 처리
+                if msg_id not in main_agent_msg_ids:
+                    continue
+
+                # tool_call 진행 중인 청크는 content가 '' → 스킵
+                if tool_calls or not content:
+                    continue
+
+                # 누적값 → delta 변환
+                prev = last_content.get(msg_id, "")
+                delta = content[len(prev):]          # 새로 추가된 부분만
+                last_content[msg_id] = content       # 현재값 저장
+
+                if delta:
+                    yield delta
