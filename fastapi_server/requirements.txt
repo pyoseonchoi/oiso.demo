@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+sqlalchemy
+psycopg2-binary
+boto3
+python-dotenv
+langgraph-sdk
+python-multipart
+alembic
+httpx
+Pillow
