@@ -121,7 +121,7 @@ async def stream_chat(request: ChatV2Request):
 async def pic_n_order(
     uuid: Annotated[str, Form(...)],
     user_language: Annotated[str, Form(...)],
-    pic: Annotated[UploadFile, File(description="메뉴판 이미지")],
+    pics: Annotated[UploadFile, File(description="메뉴판 이미지")],
 ):
     """
     메뉴판 사진을 OCR Agent로 전달하여 구조화된 메뉴 정보를 반환합니다.
@@ -131,17 +131,17 @@ async def pic_n_order(
 
     # 파일 형식 검사
     allowed_content_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-    if pic.content_type not in allowed_content_types:
+    if pics.content_type not in allowed_content_types:
         raise AppException(
             status_code=400, 
             reason=f"지원하지 않는 이미지 형식입니다. JPG, PNG, GIF, WEBP 형식만 가능합니다. (현재: {pic.content_type})"
         )
 
-    pic.file.seek(0)
-    image_bytes = await pic.read() # uploadfile -> bytes로
+    pics.file.seek(0)
+    image_bytes = await pics.read() # uploadfile -> bytes로
     image_b64 = base64.b64encode(image_bytes).decode("utf-8") # bytes -> base64 문자열
 
-    pic.file.seek(0)
+    pics.file.seek(0)
 
     ocr_result = await ax_services.run_ocr_agent(image_b64, user_language)
     
