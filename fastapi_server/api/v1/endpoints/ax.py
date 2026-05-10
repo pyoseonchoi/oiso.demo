@@ -134,7 +134,7 @@ async def pic_n_order(
     if pics.content_type not in allowed_content_types:
         raise AppException(
             status_code=400, 
-            reason=f"지원하지 않는 이미지 형식입니다. JPG, PNG, GIF, WEBP 형식만 가능합니다. (현재: {pic.content_type})"
+            reason=f"지원하지 않는 이미지 형식입니다. JPG, PNG, GIF, WEBP 형식만 가능합니다. (현재: {pics.content_type})"
         )
 
     pics.file.seek(0)
