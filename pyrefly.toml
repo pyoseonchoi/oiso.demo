@@ -1,0 +1,18 @@
+python-interpreter-path = ".venv/Scripts/python.exe"
+
+project-includes = [
+  "api",
+  "core",
+  "db",
+  "models",
+  "schemas",
+  "services",
+  "main.py"
+]
+
+project-excludes = [
+  "**/.venv/**",
+  "**/venv/**",
+  "**/__pycache__/**",
+  "**/alembic/versions/**"
+]
