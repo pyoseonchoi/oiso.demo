@@ -22,7 +22,7 @@ The agent helps with:
 Return this JSON shape:
 {
   "intent": "food_identification" | "nearby_recommendation" | "market_info" | "general_chat" | "clarification_needed",
-  "normalized_tag": "standard Korean DB tag or empty string",
+  "normalized_tags": ["standard Korean DB tag", "another tag"],
   "confidence": 0.0,
   "needs_location_search": false,
   "assistant_hint": "short instruction for the main agent"
@@ -31,23 +31,26 @@ Return this JSON shape:
 Rules:
 1. If the user describes a food vaguely but does not clearly ask for nearby places, use intent="food_identification" and needs_location_search=false.
 2. If the user asks for nearby places, recommendations, where to eat/buy, or uses words like nearby/around/근처/주변/추천, use intent="nearby_recommendation" and needs_location_search=true.
-3. normalized_tag must be a short standard Korean noun when a likely food/item/place tag exists.
+3. normalized_tags must be a list of short standard Korean nouns when a likely food/item/place tag exists. Empty list if none.
 4. If there is no food, place, tourism, or market-related intent, use intent="general_chat".
 5. If the request is too ambiguous to infer a useful target, use intent="clarification_needed".
-6. confidence should reflect how certain the normalized_tag and intent are.
+6. confidence should reflect how certain the normalized_tags and intent are.
 
 Examples:
 User: "빨갛고 긴 떡 요리 뭐야?"
-Output: {"intent":"food_identification","normalized_tag":"떡볶이","confidence":0.9,"needs_location_search":false,"assistant_hint":"Explain that the food is likely tteokbokki and ask whether the user wants nearby recommendations."}
+Output: {"intent":"food_identification","normalized_tags":["떡볶이"],"confidence":0.9,"needs_location_search":false,"assistant_hint":"Explain that the food is likely tteokbokki and ask whether the user wants nearby recommendations."}
 
 User: "근처 떡볶이 추천해줘"
-Output: {"intent":"nearby_recommendation","normalized_tag":"떡볶이","confidence":0.95,"needs_location_search":true,"assistant_hint":"Search nearby stores using the 떡볶이 tag."}
+Output: {"intent":"nearby_recommendation","normalized_tags":["떡볶이"],"confidence":0.95,"needs_location_search":true,"assistant_hint":"Search nearby stores using the 떡볶이 tag."}
 
 User: "I saw long spicy red rice cakes nearby. Where can I get them?"
-Output: {"intent":"nearby_recommendation","normalized_tag":"떡볶이","confidence":0.9,"needs_location_search":true,"assistant_hint":"Explain the dish briefly, then search nearby stores using the 떡볶이 tag."}
+Output: {"intent":"nearby_recommendation","normalized_tags":["떡볶이"],"confidence":0.9,"needs_location_search":true,"assistant_hint":"Explain the dish briefly, then search nearby stores using the 떡볶이 tag."}
+
+User: "떡볶이랑 순대 파는 곳"
+Output: {"intent":"nearby_recommendation","normalized_tags":["떡볶이", "순대"],"confidence":0.95,"needs_location_search":true,"assistant_hint":"Search nearby stores using the 떡볶이 and 순대 tags."}
 
 User: "안녕"
-Output: {"intent":"general_chat","normalized_tag":"","confidence":1.0,"needs_location_search":false,"assistant_hint":"Reply briefly and offer help with traditional market food or tourism."}
+Output: {"intent":"general_chat","normalized_tags":[],"confidence":1.0,"needs_location_search":false,"assistant_hint":"Reply briefly and offer help with traditional market food or tourism."}
 """)
 
 
@@ -57,7 +60,7 @@ def get_main_agent_prompt(
     client_lat: float = 0.0,
     client_lng: float = 0.0,
     intent: str = "clarification_needed",
-    normalized_tag: str = "",
+    normalized_tags: list[str] = None,
     confidence: float = 0.0,
     needs_location_search: bool = False,
     has_valid_location: bool = False,
@@ -72,7 +75,7 @@ The user's current GPS coordinates are: latitude={client_lat}, longitude={client
 
 [QUERY UNDERSTANDING]
 - intent: {intent}
-- normalized_tag: {normalized_tag or enhanced_query}
+- normalized_tags: {normalized_tags if normalized_tags else enhanced_query}
 - confidence: {confidence}
 - needs_location_search: {needs_location_search}
 - has_valid_location: {has_valid_location}
@@ -82,8 +85,8 @@ The user's current GPS coordinates are: latitude={client_lat}, longitude={client
 {search_policy}
 
 1. If intent is "nearby_recommendation":
-   - If has_valid_location is true and normalized_tag is not empty, call `search_nearby_stores`.
-   - Use tag_name="{normalized_tag or enhanced_query}", lat={client_lat}, lng={client_lng}.
+   - If has_valid_location is true and normalized_tags is not empty, call `search_nearby_stores`.
+   - Use tag_names={normalized_tags if normalized_tags else enhanced_query}, lat={client_lat}, lng={client_lng}.
    - Do not invent coordinates.
    - If has_valid_location is false, do not call the tool. Ask the user to enable or provide location.
 
@@ -122,7 +125,7 @@ When `search_nearby_stores` returns JSON:
 2. If status is "empty":
    - Say that no matching nearby spots were found within the current radius.
    - Suggest trying a broader category or a larger search radius.
-   - If the normalized tag is specific, suggest a parent category when natural.
+   - If the normalized tags are specific, suggest a parent category when natural.
      Example: 떡볶이 -> 분식, 꽈배기 -> 빵 or 도너츠.
 
 3. If status is "error":

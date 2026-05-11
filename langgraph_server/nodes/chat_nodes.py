@@ -35,7 +35,7 @@ def parse_query_understanding(raw_content: str) -> dict:
     except json.JSONDecodeError:
         return {
             "intent": "clarification_needed",
-            "normalized_tag": "",
+            "normalized_tags": [],
             "confidence": 0.0,
             "needs_location_search": False,
             "assistant_hint": "Ask a short clarification question.",
@@ -58,9 +58,18 @@ def parse_query_understanding(raw_content: str) -> dict:
 
     confidence = max(0.0, min(confidence, 1.0))
 
+    # Parse normalized_tags as a list of strings
+    raw_tags = parsed.get("normalized_tags", [])
+    if isinstance(raw_tags, str):
+        normalized_tags = [raw_tags.strip()] if raw_tags.strip() else []
+    elif isinstance(raw_tags, list):
+        normalized_tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+    else:
+        normalized_tags = []
+
     return {
         "intent": intent,
-        "normalized_tag": str(parsed.get("normalized_tag", "")).strip(),
+        "normalized_tags": normalized_tags,
         "confidence": confidence,
         "needs_location_search": bool(parsed.get("needs_location_search", False)),
         "assistant_hint": str(parsed.get("assistant_hint", "")).strip(),
@@ -86,12 +95,12 @@ def call_query_understanding(state: ChatAgentState):
     response = extraction_model.invoke(enhancer_msg)
     understanding = parse_query_understanding(response.content)
 
-    normalized_tag = understanding["normalized_tag"]
+    normalized_tags = understanding["normalized_tags"]
 
     return {
-        "enhanced_query": normalized_tag,
+        "enhanced_query": normalized_tags,
         "intent": understanding["intent"],
-        "normalized_tag": normalized_tag,
+        "normalized_tags": normalized_tags,
         "confidence": understanding["confidence"],
         "needs_location_search": understanding["needs_location_search"],
         "has_valid_location": has_valid_location(
@@ -105,7 +114,7 @@ def call_query_understanding(state: ChatAgentState):
 # 메인 노드 (도구 사용 및 답변)
 def call_main_agent(state: ChatAgentState):
     user_lang = state.get("user_language", "English")
-    enhanced_q = state.get("enhanced_query", "")
+    enhanced_q = state.get("enhanced_query", [])
 
     sys_msg = get_main_agent_prompt(
         user_language=user_lang,
@@ -113,7 +122,7 @@ def call_main_agent(state: ChatAgentState):
         client_lat=state.get("client_lat", 0.0),
         client_lng=state.get("client_lng", 0.0),
         intent=state.get("intent", "clarification_needed"),
-        normalized_tag=state.get("normalized_tag", ""),
+        normalized_tags=state.get("normalized_tags", []),
         confidence=state.get("confidence", 0.0),
         needs_location_search=state.get("needs_location_search", False),
         has_valid_location=state.get("has_valid_location", False),

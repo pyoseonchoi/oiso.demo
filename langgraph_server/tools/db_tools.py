@@ -8,14 +8,14 @@ _engine = None
 
 def tool_response(
     status: str,
-    tag_name: str,
+    tag_names: list[str],
     radius_km: float,
     results: list | None = None,
     message: str = "",
 ) -> str:
     payload = {
         "status": status,  # "success" | "empty" | "error"
-        "tag_name": tag_name,
+        "tag_names": tag_names,
         "radius_km": radius_km,
         "count": len(results or []),
         "results": results or [],
@@ -42,24 +42,24 @@ def get_engine():
 
 
 @tool
-def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float = 1.0) -> str:
+def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km: float = 1.0) -> str:
     """
-    Search nearby traditional-market clusters by a Korean tag.
+    Search nearby traditional-market clusters by a list of Korean tags.
 
     Args:
-        tag_name: Korean tag to search for, such as "떡볶이", "김밥", "카페".
+        tag_names: List of Korean tags to search for, such as ["떡볶이", "김밥"].
         lat: User latitude.
         lng: User longitude.
         radius_km: Search radius in kilometers.
 
     Returns:
-        JSON string with status, tag_name, radius_km, count, results, and message.
+        JSON string with status, tag_names, radius_km, count, results, and message.
     """
     engine = get_engine()
     if engine is None:
         return tool_response(
             status="error",
-            tag_name=tag_name,
+            tag_names=tag_names,
             radius_km=radius_km,
             message="DATABASE_URL environment variable is not set.",
         )
@@ -68,54 +68,65 @@ def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float
         with engine.connect() as conn:
             # tag_list로 태그와 연결된 cluster_array 조회
             # tags 테이블의 PK가 tag_string(문자열)이므로 직접 비교
-            query = text("""
-                WITH matched_clusters AS (
-                    SELECT
-                        ca.cluster_no,
-                        ca.latitude,
-                        ca.longitude,
-                        ST_Distance(
-                            ca.geom::geography,
-                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
-                        ) / 1000.0 AS distance_km
-                    FROM cluster_array ca
-                    JOIN tag_list tl ON ca.cluster_no = tl.cluster_no
-                    WHERE tl.tag = :tag_name
-                    AND ST_DWithin(
-                        ca.geom::geography,
-                        ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                        :radius_m
-                    )
-                )
-                SELECT
-                    mc.cluster_no,
-                    mc.latitude,
-                    mc.longitude,
-                    mc.distance_km,
-                    array_agg(tl2.tag ORDER BY tl2.tag) AS all_tags
-                FROM matched_clusters mc
-                JOIN tag_list tl2 ON mc.cluster_no = tl2.cluster_no
-                GROUP BY mc.cluster_no, mc.latitude, mc.longitude, mc.distance_km
-                ORDER BY mc.distance_km ASC
-                LIMIT 5
-            """)
-            result = conn.execute(
-                query,
-                {
-                    "tag_name": tag_name,
-                    "lat": lat,
-                    "lng": lng,
-                    "radius_m": radius_km * 1000,
-                },
-            ).fetchall()
+            search_radiuses = [radius_km]
+            if radius_km <= 1.0:
+                search_radiuses.extend([3.0, 5.0])
 
             nearby_clusters = []
-            for row in result:
-                nearby_clusters.append({
-                    "cluster_no": row[0],
-                    "tags": row[4],
-                    "distance_km": round(float(row[3]), 2),
-                })
+            final_radius = radius_km
+
+            for current_radius in search_radiuses:
+                query = text("""
+                    WITH matched_clusters AS (
+                        SELECT
+                            ca.cluster_no,
+                            ca.latitude,
+                            ca.longitude,
+                            ST_Distance(
+                                ca.geom::geography,
+                                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+                            ) / 1000.0 AS distance_km
+                        FROM cluster_array ca
+                        JOIN tag_list tl ON ca.cluster_no = tl.cluster_no
+                        WHERE tl.tag IN :tag_names
+                        AND ST_DWithin(
+                            ca.geom::geography,
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                            :radius_m
+                        )
+                    )
+                    SELECT
+                        mc.cluster_no,
+                        mc.latitude,
+                        mc.longitude,
+                        mc.distance_km,
+                        array_agg(tl2.tag ORDER BY tl2.tag) AS all_tags
+                    FROM matched_clusters mc
+                    JOIN tag_list tl2 ON mc.cluster_no = tl2.cluster_no
+                    GROUP BY mc.cluster_no, mc.latitude, mc.longitude, mc.distance_km
+                    ORDER BY mc.distance_km ASC
+                    LIMIT 5
+                """)
+                result = conn.execute(
+                    query,
+                    {
+                        "tag_names": tuple(tag_names) if tag_names else tuple([""]),
+                        "lat": lat,
+                        "lng": lng,
+                        "radius_m": current_radius * 1000,
+                    },
+                ).fetchall()
+
+                for row in result:
+                    nearby_clusters.append({
+                        "cluster_no": row[0],
+                        "tags": row[4],
+                        "distance_km": round(float(row[3]), 2),
+                    })
+                
+                if nearby_clusters:
+                    final_radius = current_radius
+                    break
 
             # 거리가 가까운 순서대로 정렬 (오름차순)
             nearby_clusters.sort(key=lambda x: x["distance_km"])
@@ -125,15 +136,15 @@ def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float
             if not nearby_clusters:
                 return tool_response(
                     status="empty",
-                    tag_name=tag_name,
-                    radius_km=radius_km,
-                    message=f"No clusters found within {radius_km}km for the tag '{tag_name}'.",
+                    tag_names=tag_names,
+                    radius_km=final_radius,
+                    message=f"No clusters found within {final_radius}km for the tags: {tag_names}.",
                 )
 
             return tool_response(
                 status="success",
-                tag_name=tag_name,
-                radius_km=radius_km,
+                tag_names=tag_names,
+                radius_km=final_radius,
                 results=nearby_clusters,
                 message=f"Found {len(nearby_clusters)} nearby clusters.",
             )
@@ -141,7 +152,7 @@ def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float
     except Exception as e:
         return tool_response(
             status="error",
-            tag_name=tag_name,
+            tag_names=tag_names,
             radius_km=radius_km,
             message=f"Error while searching the database: {str(e)}",
         )

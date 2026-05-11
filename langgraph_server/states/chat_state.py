@@ -17,12 +17,11 @@ class ChatAgentState(TypedDict):
     client_lat: float
     client_lng: float
     user_language: str
-    enhanced_query: str  # 쿼리 강화 에이전트가 뽑아낸 단일 태그(명사) 저장칸
-
+    enhanced_query: list[str]  # 쿼리 강화 에이전트가 뽑아낸 태그(명사) 리스트 저장칸
 
    # ── query_understanding 출력 필드 (신규) ──────────
     intent: NotRequired[IntentType]          # 분류된 의도
-    normalized_tag: NotRequired[str]         # 정규화된 한국어 태그 (예: "떡볶이")
+    normalized_tags: NotRequired[list[str]]  # 정규화된 한국어 태그 리스트 (예: ["떡볶이", "순대"])
     confidence: NotRequired[float]           # 0.0 ~ 1.0, 낮으면 clarification_needed
     needs_location_search: NotRequired[bool]           # True일 때만 search_nearby_stores 호출
     assistant_hint: NotRequired[str]         # main_agent 프롬프트에 주입할 힌트 문장 
