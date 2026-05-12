@@ -37,7 +37,7 @@ def call_ocr_node(state: OCRAgentState):
     # 이미지 전달 - https://docs.langchain.com/oss/python/langchain/messages#multimodal 참고함
     message = HumanMessage(content= [
         {"type": "text", "text": f"이 메뉴판 이미지에서 메뉴 항목들을 추출해라. 각 메뉴의 원래 언어 텍스트, {user_lang}로 번역한 텍스트, 가격을 구조화해서 반환해라."},
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{state["image_b64"]}"}},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{state['image_b64']}"}},
 
     ])
 
