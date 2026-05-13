@@ -2,9 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from core.config import settings
-from core.storage import get_s3_client, get_bucket_name
-from botocore.client import BaseClient
+from core.storage import get_s3_client, get_bucket_name, generate_image_url
 
 DEFAULT_PRESIGNED_URL_EXPIRES_IN = 60 * 10
 
@@ -92,28 +90,6 @@ def extract_image_metadata(file_obj) -> dict:
 
 
 
-def build_picture_url(bucket_name: str, s3_key: str) -> str:
-    if settings.MINIO_ENDPOINT_URL:
-        return f"{settings.MINIO_ENDPOINT_URL}/{bucket_name}/{s3_key}"
-
-    return f"https://{bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
-
-
-def build_presigned_picture_url(
-    s3_client: BaseClient,
-    bucket_name: str,
-    s3_key: str,
-    expires_in: int = DEFAULT_PRESIGNED_URL_EXPIRES_IN,
-) -> str:
-    # presigned 방식
-    return s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={
-            "Bucket": bucket_name,
-            "Key": s3_key,
-        },
-        ExpiresIn=expires_in,
-    )
 
 
 def upload_picture(image: UploadFile, db: Session) -> dict:
@@ -143,17 +119,20 @@ def upload_picture(image: UploadFile, db: Session) -> dict:
             image.file,
             bucket_name,
             s3_key,
-            ExtraArgs={"ContentType": image.content_type or "application/octet-stream"},
+            ExtraArgs={
+                "ContentType": content_type or "application/octet-stream",
+                "CacheControl": "public, max-age=31536000, immutable",
+            },
         )
 
         s3_version = None
 
         # 프론트 미리보기용 URL
-        picture_url = build_presigned_picture_url(
-            s3_client=s3_client,
-            bucket_name=bucket_name,
+        picture_url = generate_image_url(
             s3_key=s3_key,
+            expires_in=DEFAULT_PRESIGNED_URL_EXPIRES_IN,
         )
+
 
         # ─── DB 저장: Image → Metadata → Picture ───────────────
         image_id = str(uuid4())
