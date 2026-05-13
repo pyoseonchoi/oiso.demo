@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     #EC2 S3 전용
     S3_BUCKET_NAME: str | None = None
 
+    #CloudFront / CDN
+    CDN_BASE_URL: str | None = None
+    IMAGE_URL_EXPIRES_IN: int = 600
+
     LANGGRAPH_SERVER_URL: str = "http://127.0.0.1:2024"
 
     model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
