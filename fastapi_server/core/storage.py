@@ -2,7 +2,8 @@ import boto3
 from botocore.exceptions import ClientError
 from core.config import settings
 import json
-from urllib.parse import quote 
+from urllib.parse import quote
+
 #S3 클라이언트 생성
 
 def get_s3_client():

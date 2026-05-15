@@ -26,6 +26,10 @@ class Settings(BaseSettings):
 
     LANGGRAPH_SERVER_URL: str = "http://127.0.0.1:2024"
 
+    # CloudFront / CDN
+    CDN_BASE_URL: str | None = None
+    IMAGE_URL_EXPIRES_IN: int = 600
+
     model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
 
 @lru_cache
