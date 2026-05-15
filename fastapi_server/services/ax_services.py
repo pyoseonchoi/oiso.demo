@@ -1,9 +1,126 @@
 import uuid
+import base64
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import UploadFile
 from langgraph_sdk import get_client
 from exceptions.base import AppException
+from exceptions.http import BadRequestException, StorageException
 from core.config import settings
+from core.storage import get_s3_client, get_bucket_name, generate_image_url
 
 client = get_client(url=settings.LANGGRAPH_SERVER_URL)
+
+DEFAULT_CHAT_ATTACHMENT_URL_EXPIRES_IN = 60 * 10
+CHAT_ATTACHMENT_PREFIX = "chat_attachments"
+
+
+def upload_chat_attachment(image: UploadFile, thread_id: str | None = None) -> dict:
+    """
+    채팅 첨부 이미지를 S3/MinIO에만 저장합니다.
+
+    지도 데이터 구축용 Picture/Metadata/Image 테이블에는 저장하지 않습니다.
+    """
+    if not image.filename:
+        raise BadRequestException(reason="업로드할 파일명이 존재하지 않습니다.")
+
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise BadRequestException(reason="이미지 파일만 업로드할 수 있습니다.")
+
+    ext = Path(image.filename).suffix
+    raw_thread_id = (thread_id or "anonymous").strip() or "anonymous"
+    safe_thread_id = "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in raw_thread_id
+    )
+    s3_key = f"{CHAT_ATTACHMENT_PREFIX}/{safe_thread_id}/{uuid4()}{ext}"
+
+    try:
+        
+        s3_client = get_s3_client()
+        bucket_name = get_bucket_name()
+
+        s3_client.upload_fileobj(
+            image.file,
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                "ContentType": image.content_type,
+                "CacheControl": "private, max-age=600",
+            },
+        )
+
+        attachment_url = generate_image_url(
+            s3_key=s3_key,
+            expires_in=DEFAULT_CHAT_ATTACHMENT_URL_EXPIRES_IN,
+        )
+
+        return {
+            "type": "image",
+            "attachment_id": str(uuid4()),
+            "url": attachment_url,
+            "s3_bucket": bucket_name,
+            "s3_key": s3_key,
+            "s3_version": None,
+            "mime_type": image.content_type,
+        }
+
+    except BadRequestException:
+        raise
+    except Exception as e:
+        raise StorageException(reason=f"채팅 첨부 이미지 업로드에 실패했습니다. ({str(e)})")
+    finally:
+        pass
+
+
+def load_chat_attachment_as_base64(s3_key: str) -> str:
+    """
+    Load a chat attachment object from S3/MinIO and return it as base64 text.
+    Only chat_attachments objects are allowed.
+    """
+    if not s3_key:
+        raise BadRequestException(reason="s3_key가 필요합니다.")
+
+    if not s3_key.startswith(f"{CHAT_ATTACHMENT_PREFIX}/"):
+        raise BadRequestException(reason="채팅 첨부 이미지 경로만 분석할 수 있습니다.")
+
+    try:
+        s3_client = get_s3_client()
+        bucket_name = get_bucket_name()
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+        image_bytes = response["Body"].read()
+        return base64.b64encode(image_bytes).decode("utf-8")
+
+    except BadRequestException:
+        raise
+    except Exception as e:
+        raise StorageException(reason=f"채팅 첨부 이미지를 읽지 못했습니다. ({str(e)})")
+
+
+def prepare_attachments_for_langgraph(attachments: list[dict] | None) -> list[dict]:
+    """
+    Prepare chat attachments before sending them to LangGraph.
+
+    Local MinIO URLs are usually localhost URLs that OpenAI cannot fetch.
+    In that case, include a base64 data URL for vision input.
+    """
+    prepared = []
+    for attachment in attachments or []:
+        item = dict(attachment)
+        if (
+            settings.MINIO_ENDPOINT_URL
+            and item.get("type") == "image"
+            and item.get("s3_key")
+            and not item.get("data_url")
+        ):
+            image_b64 = load_chat_attachment_as_base64(item["s3_key"])
+            mime_type = item.get("mime_type") or "image/jpeg"
+            item["data_url"] = f"data:{mime_type};base64,{image_b64}"
+
+        prepared.append(item)
+
+    return prepared
 
 
 async def run_ocr_agent(image_b64: str, user_language: str) -> dict:
@@ -165,3 +282,105 @@ async def stream_chat_agent(
 
                 if delta:
                     yield delta
+
+
+async def stream_chat_agent_v2(
+    thread_id: str,
+    user_message: str,
+    user_language: str,
+    client_lat: float,
+    client_lng: float,
+    attachments: list[dict] | None = None,
+):
+    """
+    stream_chat_agent와 동일하게 main_agent의 텍스트 토큰을 스트리밍하되,
+    LangGraph state에 attachments 메타데이터를 함께 전달합니다.
+    """
+    _NAMESPACE = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    lg_thread_id = str(uuid.uuid5(_NAMESPACE, thread_id))
+
+    try:
+        thread = await client.threads.get(lg_thread_id)
+        if thread.get("status") in ("error", "interrupted"):
+            await client.threads.delete(lg_thread_id)
+            await client.threads.create(thread_id=lg_thread_id)
+    except Exception:
+        await client.threads.create(thread_id=lg_thread_id)
+
+    main_agent_msg_ids: set[str] = set()
+    last_content: dict[str, str] = {}
+
+    input_payload = {
+        "messages": [{"role": "human", "content": user_message}],
+        "user_language": user_language,
+        "client_lat": client_lat,
+        "client_lng": client_lng,
+        "attachments": prepare_attachments_for_langgraph(attachments),
+    }
+
+    async for chunk in client.runs.stream(
+        lg_thread_id,
+        "chat_agent",
+        input=input_payload,
+        stream_mode="messages",
+    ):
+        event = chunk.event
+        data = chunk.data
+
+        if event == "messages/metadata":
+            for msg_id, info in data.items():
+                node = info.get("metadata", {}).get("langgraph_node", "")
+                if node == "main_agent":
+                    main_agent_msg_ids.add(msg_id)
+
+        elif event == "messages/partial":
+            for msg in data:
+                msg_id = msg.get("id", "")
+                content = msg.get("content", "")
+                tool_calls = msg.get("tool_calls", [])
+
+                if msg_id not in main_agent_msg_ids:
+                    continue
+
+                if tool_calls or not content:
+                    continue
+
+                prev = last_content.get(msg_id, "")
+                delta = content[len(prev):]
+                last_content[msg_id] = content
+
+                if delta:
+                    yield delta
+
+    # ── 스트림 종료 후: OCR 결과 확인 ─────────────────────────
+    # analyze_menu_image tool이 호출됐다면 thread state의 ToolMessage에서 결과 추출
+    TOOL_EVENT_MAP = {
+        "analyze_menu_image": "__ocr_result__",
+        "search_nearby_stores": "__nearby_stores_result__",
+    }
+
+    try:
+        thread_state = await client.threads.get_state(lg_thread_id)
+        state_values = thread_state.get("values", {}) if isinstance(thread_state, dict) else getattr(thread_state, "values", {}) or {}
+        messages = state_values.get("messages", [])
+
+        found_tools = set()
+        for msg in reversed(messages):
+            msg_type = msg.get("type") if isinstance(msg, dict) else getattr(msg, "type", None)
+            msg_name = msg.get("name") if isinstance(msg, dict) else getattr(msg, "name", None)
+            msg_content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+
+            if msg_type == "tool" and msg_name in TOOL_EVENT_MAP and msg_name not in found_tools:
+                found_tools.add(msg_name)
+                try:
+                    import json as _json
+                    tool_data = _json.loads(msg_content) if isinstance(msg_content, str) else msg_content
+                    yield (TOOL_EVENT_MAP[msg_name], tool_data)
+                except Exception:
+                    pass
+            # 마지막 HumanMessage까지만 탐색 (이전 턴의 Tool 결과는 무시)
+            if msg_type == "human":
+                break
+    except Exception:
+        pass
+

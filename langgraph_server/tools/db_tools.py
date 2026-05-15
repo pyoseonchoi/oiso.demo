@@ -94,19 +94,37 @@ def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km
                             ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
                             :radius_m
                         )
+                    ),
+                    cluster_tags AS (
+                        SELECT
+                            mc.cluster_no,
+                            mc.latitude,
+                            mc.longitude,
+                            mc.distance_km,
+                            array_agg(DISTINCT tl2.tag ORDER BY tl2.tag) AS all_tags
+                        FROM matched_clusters mc
+                        JOIN tag_list tl2 ON mc.cluster_no = tl2.cluster_no
+                        GROUP BY mc.cluster_no, mc.latitude, mc.longitude, mc.distance_km
                     )
                     SELECT
-                        mc.cluster_no,
-                        mc.latitude,
-                        mc.longitude,
-                        mc.distance_km,
-                        array_agg(tl2.tag ORDER BY tl2.tag) AS all_tags
-                    FROM matched_clusters mc
-                    JOIN tag_list tl2 ON mc.cluster_no = tl2.cluster_no
-                    GROUP BY mc.cluster_no, mc.latitude, mc.longitude, mc.distance_km
-                    ORDER BY mc.distance_km ASC
+                        ct.cluster_no,
+                        ct.latitude,
+                        ct.longitude,
+                        ct.distance_km,
+                        ct.all_tags,
+                        (
+                            SELECT i.s3_key
+                            FROM picture_list pl
+                            JOIN picture p ON pl.pic_no = p.unique_id
+                            JOIN image i ON p.image_id = i.unique_id
+                            WHERE pl.cluster_no = ct.cluster_no
+                            LIMIT 1
+                        ) AS thumbnail_s3_key
+                    FROM cluster_tags ct
+                    ORDER BY ct.distance_km ASC
                     LIMIT 5
                 """)
+
                 result = conn.execute(
                     query,
                     {
@@ -120,8 +138,11 @@ def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km
                 for row in result:
                     nearby_clusters.append({
                         "cluster_no": row[0],
+                        "latitude": float(row[1]),
+                        "longitude": float(row[2]),
                         "tags": row[4],
                         "distance_km": round(float(row[3]), 2),
+                        "thumbnail_s3_key": row[5],  # ← 추가 (None일 수 있음)
                     })
                 
                 if nearby_clusters:
