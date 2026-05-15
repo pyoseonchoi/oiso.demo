@@ -91,7 +91,6 @@ def extract_image_metadata(file_obj) -> dict:
 
 
 
-
 def upload_picture(image: UploadFile, db: Session) -> dict:
     """
     이미지를 S3(MinIO)에 업로드하고, DB에 Image/Metadata/Picture 레코드 생성 후 URL 반환
@@ -120,7 +119,7 @@ def upload_picture(image: UploadFile, db: Session) -> dict:
             bucket_name,
             s3_key,
             ExtraArgs={
-                "ContentType": content_type or "application/octet-stream",
+                "ContentType": image.content_type or "application/octet-stream",
                 "CacheControl": "public, max-age=31536000, immutable",
             },
         )

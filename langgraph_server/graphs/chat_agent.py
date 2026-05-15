@@ -5,10 +5,11 @@ from langgraph.prebuilt import ToolNode
 from states.chat_state import ChatAgentState
 from nodes.chat_nodes import call_query_understanding, call_main_agent, should_continue
 from tools.db_tools import search_nearby_stores
+from tools.vision_tools import analyze_menu_image
 
 
 # 툴 노드
-tools = [search_nearby_stores]
+tools = [search_nearby_stores, analyze_menu_image]
 tool_node = ToolNode(tools)
 
 # 그래프 조립

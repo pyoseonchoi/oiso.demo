@@ -25,6 +25,9 @@ Return this JSON shape:
   "normalized_tags": ["standard Korean DB tag", "another tag"],
   "confidence": 0.0,
   "needs_location_search": false,
+  "needs_menu_ocr": false,
+  "needs_order_flow": false,
+  "image_intent": "none",
   "assistant_hint": "short instruction for the main agent"
 }
 
@@ -35,6 +38,9 @@ Rules:
 4. If there is no food, place, tourism, or market-related intent, use intent="general_chat".
 5. If the request is too ambiguous to infer a useful target, use intent="clarification_needed".
 6. confidence should reflect how certain the normalized_tags and intent are.
+7. Set needs_menu_ocr=true when the user asks to read, translate, extract, or understand a menu/menu board image.
+8. Set needs_order_flow=true when the user wants to order from a menu image or asks for help choosing/orderable items.
+9. Set image_intent to "menu", "receipt", "signboard", "food", "place", "object", or "none" when the text implies an image task. Use "none" if no image context is implied.
 
 Examples:
 User: "빨갛고 긴 떡 요리 뭐야?"
@@ -63,11 +69,32 @@ def get_main_agent_prompt(
     normalized_tags: list[str] = None,
     confidence: float = 0.0,
     needs_location_search: bool = False,
+    needs_menu_ocr: bool = False,
+    needs_order_flow: bool = False,
+    image_intent: str = "none",
+    ocr_result: dict | None = None,
     has_valid_location: bool = False,
     assistant_hint: str = "",
+    attachments: list[dict] | None = None,
 ):
     search_policy = "Do not call tools unless the policy below explicitly allows it."
 
+    # 이미지 첨부 플레이스홀더 정보 생성
+    # base64 전체를 프롬프트에 넣으면 토큰 폭증 → 플레이스홀더 규칙만 주입
+    attachment_hint = ""
+    if attachments:
+        image_attachments = [
+            a for a in attachments
+            if a.get("type") == "image" and (a.get("data_url") or a.get("url"))
+        ]
+        if image_attachments:
+            attachment_hint = (
+                f"\n[ATTACHED IMAGES]\n"
+                f"The user has attached {len(image_attachments)} image(s).\n"
+                f"When calling analyze_menu_image, use image_data_url=\"__ATTACHMENT_IMAGE_0__\".\n"
+                f"The system will automatically replace this placeholder with the actual image data.\n"
+            )
+            
     return SystemMessage(content=f"""
 You are an expert local guide AI for Korean traditional markets.
 The user prefers to speak in: {user_language}.
@@ -78,8 +105,32 @@ The user's current GPS coordinates are: latitude={client_lat}, longitude={client
 - normalized_tags: {normalized_tags if normalized_tags else enhanced_query}
 - confidence: {confidence}
 - needs_location_search: {needs_location_search}
+- needs_menu_ocr: {needs_menu_ocr}
+- needs_order_flow: {needs_order_flow}
+- image_intent: {image_intent}
+- ocr_result_available: {ocr_result is not None}
 - has_valid_location: {has_valid_location}
 - assistant_hint: {assistant_hint}
+
+[IMAGE INPUT HANDLING]{attachment_hint}
+- If image attachments are provided, interpret the image together with the user's text.
+- Do not assume every image is a menu. It may be food, a place, a signboard, a receipt, a storefront, scenery, or an object.
+- For non-menu images: describe what you see and respond to the user's question naturally.
+- For image-only messages with no text: describe the visible content briefly and ask what the user wants to know.
+
+[MENU IMAGE POLICY]
+- If the image appears to be a restaurant/cafe menu or menu board AND the user wants to
+  read, translate, extract prices, recommend items, or order from it:
+  → Call the `analyze_menu_image` tool with image_data_url="__ATTACHMENT_IMAGE_0__"
+    and user_language="{user_language}".
+  → After receiving OCR results, summarize the menu items naturally in {user_language}.
+  → Present item names, translations, and prices in a readable format.
+- If the image looks like a menu but the user did NOT explicitly ask for menu analysis:
+  → Briefly respond in {user_language} that this looks like a menu and ask if they want it analyzed.
+  → Example: "메뉴판처럼 보이네요! 메뉴 항목과 가격을 분석해 드릴까요?"
+- If the image is NOT a menu (signboard, receipt, label, food photo, storefront):
+  → Read any visible text directly and summarize it yourself.
+  → Do NOT call analyze_menu_image for non-menu images.
 
 [TOOL POLICY]
 {search_policy}
@@ -106,6 +157,14 @@ The user's current GPS coordinates are: latitude={client_lat}, longitude={client
 5. If intent is "clarification_needed":
    - Do not call tools.
    - Ask one short clarifying question in {user_language}.
+
+6. If the attached image is a menu/menu-board and the user wants menu analysis:
+   - Call `analyze_menu_image` with:
+       image_data_url="__ATTACHMENT_IMAGE_0__"
+       user_language="{user_language}"
+   - After receiving results, present them naturally. Do not dump raw JSON.
+   - Do not call this tool for non-menu images (food photos, signboards, receipts, etc.).
+
 
 [RESPONSE STYLE]
 - Respond directly in {user_language}.

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>채팅 에이전트 VQA 테스트 클라이언트</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        #chat-container {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .user-message {
+            background-color: #e3f2fd;
+            text-align: right;
+        }
+
+        .bot-message {
+            background-color: #f0f0f0;
+        }
+
+        .system-message {
+            color: #888;
+            font-size: 0.8em;
+            text-align: center;
+        }
+
+        #input-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        #message-input {
+            flex-grow: 1;
+            padding: 5px;
+        }
+
+        #image-preview {
+            max-width: 100px;
+            max-height: 100px;
+            display: none;
+            margin-top: 10px;
+        }
+
+        .ocr-result {
+            border: 1px solid #4CAF50;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+            background-color: #e8f5e9;
+        }
+
+        .ocr-item {
+            border-bottom: 1px solid #ccc;
+            padding: 5px 0;
+        }
+
+        .ocr-item:last-child {
+            border-bottom: none;
+        }
+
+        /* 주변 장소 카드 스타일 */
+        .store-cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .store-card {
+            display: flex;
+            background: white;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .store-thumbnail {
+            width: 80px;
+            height: 80px;
+            background-color: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #757575;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .store-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .store-info {
+            padding: 8px 12px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            justify-content: center;
+        }
+
+        .store-title {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .store-meta {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 6px;
+        }
+
+        .store-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .store-tag {
+            background-color: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .store-action {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 10px;
+            background-color: #f9f9f9;
+            border-left: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .store-action button {
+            background-color: transparent;
+            border: 1px solid #4CAF50;
+            color: #4CAF50;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .store-action button:hover {
+            background-color: #e8f5e9;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>채팅 에이전트 VQA 테스트 클라이언트</h1>
+
+    <div id="setup-area" style="margin-bottom: 20px;">
+        <label>Session UUID: <input type="text" id="uuid-input" value="test-session-001" style="width: 200px;"></label>
+        <button onclick="document.getElementById('uuid-input').value = crypto.randomUUID()">새 UUID 생성</button>
+    </div>
+
+    <div id="chat-container">
+        <div class="message system-message">테스트 세션 시작</div>
+    </div>
+
+    <div id="input-area">
+        <input type="file" id="image-input" accept="image/*">
+        <input type="text" id="message-input" placeholder="메시지를 입력하세요 (빈 칸 가능)"
+            onkeypress="if(event.key === 'Enter') sendMessage()">
+        <button onclick="sendMessage()" id="send-btn">전송</button>
+    </div>
+    <img id="image-preview" src="" alt="첨부 이미지 미리보기">
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const imageInput = document.getElementById('image-input');
+        const imagePreview = document.getElementById('image-preview');
+        const sendBtn = document.getElementById('send-btn');
+        const uuidInput = document.getElementById('uuid-input');
+
+        let currentAttachment = null;
+
+        // 이미지 선택 시 미리보기
+        imageInput.addEventListener('change', function () {
+            if (this.files && this.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    imagePreview.src = e.target.result;
+                    imagePreview.style.display = 'block';
+                }
+                reader.readAsDataURL(this.files[0]);
+            } else {
+                imagePreview.style.display = 'none';
+            }
+        });
+
+        function appendMessage(sender, text, isHtml = false) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}-message`;
+            if (isHtml) {
+                msgDiv.innerHTML = text;
+            } else {
+                msgDiv.textContent = text;
+            }
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return msgDiv;
+        }
+
+        async function uploadImage(file, uuid) {
+            const formData = new FormData();
+            formData.append("image", file);
+            formData.append("thread_id", uuid);
+
+            appendMessage('system', '이미지 업로드 중...');
+
+            try {
+                // 백엔드 주소가 필요합니다. 로컬 테스트 시 CORS에 주의하세요.
+                const res = await fetch("http://localhost:8000/v1/ax/upload_chat_attachment", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!res.ok) throw new Error(`업로드 실패: ${res.status}`);
+                const data = await res.json();
+                appendMessage('system', '이미지 업로드 완료');
+                return data.attachment;
+            } catch (e) {
+                appendMessage('system', `이미지 업로드 에러: ${e.message}`);
+                console.error(e);
+                return null;
+            }
+        }
+
+        function renderOcrResult(ocrData) {
+            let html = `<div class="ocr-result">
+                <h4>📋 메뉴 분석 결과 (언어: ${ocrData.original_language} → ${ocrData.user_language})</h4>`;
+
+            if (ocrData.menus && ocrData.menus.length > 0) {
+                ocrData.menus.forEach(menu => {
+                    html += `
+                    <div class="ocr-item">
+                        <strong>${menu.number}. ${menu.text_in_original_language}</strong><br>
+                        <span>${menu.text_in_user_language}</span><br>
+                        <span style="color: #e91e63;">💰 ${menu.price}</span>
+                    </div>`;
+                });
+            } else {
+                html += `<div>추출된 메뉴가 없습니다.</div>`;
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function renderNearbyStores(storeData) {
+            if (storeData.status !== "success" || !storeData.results || storeData.results.length === 0) {
+                return ''; // empty나 error 상태는 자연어 안내만으로 충분
+            }
+
+            let html = `<div class="store-cards-container">
+                <h4 style="margin: 0 0 5px 0; color: #333;">📍 주변 추천 장소 (${storeData.tag_names.join(', ')})</h4>`;
+
+            storeData.results.forEach((store, index) => {
+                const distanceStr = store.distance_km < 1 ?
+                    `${Math.round(store.distance_km * 1000)}m` :
+                    `${store.distance_km}km`;
+
+                const thumbHtml = store.thumbnail_url ?
+                    `<img src="${store.thumbnail_url}" alt="썸네일">` :
+                    `<span>No Img</span>`;
+
+                const tagsHtml = store.tags.map(tag => `<span class="store-tag">${tag}</span>`).join('');
+
+                html += `
+                <div class="store-card">
+                    <div class="store-thumbnail">
+                        ${thumbHtml}
+                    </div>
+                    <div class="store-info">
+                        <div class="store-title">장소 #${store.cluster_no}</div>
+                        <div class="store-meta">📏 ${distanceStr} 떨어짐</div>
+                        <div class="store-tags">${tagsHtml}</div>
+                    </div>
+                    <div class="store-action">
+                        <button onclick="alert('클러스터 ${store.cluster_no} 위치로 이동합니다.\\n(위도: ${store.latitude}, 경도: ${store.longitude})')">지도</button>
+                    </div>
+                </div>`;
+            });
+
+            html += `</div>`;
+            return html;
+        }
+
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            const file = imageInput.files[0];
+            const uuid = uuidInput.value.trim();
+
+            if (!text && !file) return;
+
+            messageInput.disabled = true;
+            imageInput.disabled = true;
+            sendBtn.disabled = true;
+
+            // 유저 메시지 표시
+            let userMsgContent = text;
+            if (file) {
+                userMsgContent += `<br><img src="${imagePreview.src}" style="max-width:100px; max-height:100px;">`;
+            }
+            appendMessage('user', userMsgContent, true);
+
+            // 1. 이미지 업로드 (파일이 있는 경우)
+            let attachmentInfo = null;
+            if (file) {
+                attachmentInfo = await uploadImage(file, uuid);
+            }
+
+            // 2. 스트리밍 채팅 요청
+            const requestBody = {
+                uuid: uuid,
+                user_added_message: text,
+                user_language: "Korean",
+                client_lat: 35.8690, // 수정된 요청 위치
+                client_lng: 128.5830,
+                attachments: attachmentInfo ? [attachmentInfo] : []
+            };
+
+            appendMessage('system', '에이전트 응답 대기 중...');
+
+            const botMsgDiv = appendMessage('bot', '');
+
+            try {
+                const response = await fetch("http://localhost:8000/v1/ax/stream_chat_v2", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(requestBody),
+                });
+
+                if (!response.ok) throw new Error(`스트리밍 요청 실패: ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (!line.startsWith("data: ")) continue;
+                        const dataStr = line.slice(6).trim();
+                        if (!dataStr) continue;
+
+                        try {
+                            const event = JSON.parse(dataStr);
+
+                            if (event.type === "token") {
+                                fullText += event.delta;
+                                // 줄바꿈을 <br>로 변환하여 표시
+                                botMsgDiv.innerHTML = fullText.replace(/\n/g, '<br>');
+                                chatContainer.scrollTop = chatContainer.scrollHeight;
+                            } else if (event.type === "menu_ocr_result") {
+                                const ocrHtml = renderOcrResult(event.ocr_structure);
+                                botMsgDiv.innerHTML += ocrHtml;
+                                chatContainer.scrollTop = chatContainer.scrollHeight;
+                            } else if (event.type === "nearby_stores_result") {
+                                const storeHtml = renderNearbyStores(event.data);
+                                botMsgDiv.innerHTML += storeHtml;
+                                chatContainer.scrollTop = chatContainer.scrollHeight;
+                            } else if (event.type === "error") {
+                                appendMessage('system', `에러 발생: ${event.message}`);
+                            } else if (event.type === "done") {
+                                appendMessage('system', '스트리밍 종료');
+                            }
+                        } catch (e) {
+                            console.error("JSON 파싱 에러:", e, dataStr);
+                        }
+                    }
+                }
+            } catch (e) {
+                appendMessage('system', `요청 에러: ${e.message}`);
+                console.error(e);
+            } finally {
+                // 초기화
+                messageInput.value = '';
+                imageInput.value = '';
+                imagePreview.style.display = 'none';
+                messageInput.disabled = false;
+                imageInput.disabled = false;
+                sendBtn.disabled = false;
+                messageInput.focus();
+            }
+        }
+    </script>
+</body>
+
+</html>
