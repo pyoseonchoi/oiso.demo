@@ -2,6 +2,8 @@ import uuid
 import base64
 from pathlib import Path
 from uuid import uuid4
+import asyncio
+
 
 from fastapi import UploadFile
 from langgraph_sdk import get_client
@@ -14,6 +16,27 @@ client = get_client(url=settings.LANGGRAPH_SERVER_URL)
 
 DEFAULT_CHAT_ATTACHMENT_URL_EXPIRES_IN = 60 * 10
 CHAT_ATTACHMENT_PREFIX = "chat_attachments"
+
+# ── Thread 인메모리 캐시 ────────────────────────────────────
+# 이미 확인된 thread_id를 캐시 → 재방문 시 GET/CREATE HTTP 호출 제거
+_thread_cache: set[str] = set()
+_cache_lock = asyncio.Lock()
+
+async def ensure_thread(lg_thread_id: str):
+    """Thread 존재를 캐시하여 불필요한 HTTP 라운드트립을 제거합니다."""
+    if lg_thread_id in _thread_cache:
+        return
+    async with _cache_lock:
+        if lg_thread_id in _thread_cache:
+            return
+        try:
+            thread = await client.threads.get(lg_thread_id)
+            if thread.get("status") in ("error", "interrupted"):
+                await client.threads.delete(lg_thread_id)
+                await client.threads.create(thread_id=lg_thread_id)
+        except Exception:
+            await client.threads.create(thread_id=lg_thread_id)
+        _thread_cache.add(lg_thread_id)
 
 
 def upload_chat_attachment(image: UploadFile, thread_id: str | None = None) -> dict:
@@ -295,20 +318,12 @@ async def stream_chat_agent_v2(
     """
     stream_chat_agent와 동일하게 main_agent의 텍스트 토큰을 스트리밍하되,
     LangGraph state에 attachments 메타데이터를 함께 전달합니다.
+    messages-tuple 모드로 delta를 직접 수신합니다.
     """
     _NAMESPACE = uuid.UUID("00000000-0000-0000-0000-000000000001")
     lg_thread_id = str(uuid.uuid5(_NAMESPACE, thread_id))
 
-    try:
-        thread = await client.threads.get(lg_thread_id)
-        if thread.get("status") in ("error", "interrupted"):
-            await client.threads.delete(lg_thread_id)
-            await client.threads.create(thread_id=lg_thread_id)
-    except Exception:
-        await client.threads.create(thread_id=lg_thread_id)
-
-    main_agent_msg_ids: set[str] = set()
-    last_content: dict[str, str] = {}
+    await ensure_thread(lg_thread_id)
 
     input_payload = {
         "messages": [{"role": "human", "content": user_message}],
@@ -318,69 +333,62 @@ async def stream_chat_agent_v2(
         "attachments": prepare_attachments_for_langgraph(attachments),
     }
 
-    async for chunk in client.runs.stream(
-        lg_thread_id,
-        "chat_agent",
-        input=input_payload,
-        stream_mode="messages",
-    ):
-        event = chunk.event
-        data = chunk.data
-
-        if event == "messages/metadata":
-            for msg_id, info in data.items():
-                node = info.get("metadata", {}).get("langgraph_node", "")
-                if node == "main_agent":
-                    main_agent_msg_ids.add(msg_id)
-
-        elif event == "messages/partial":
-            for msg in data:
-                msg_id = msg.get("id", "")
-                content = msg.get("content", "")
-                tool_calls = msg.get("tool_calls", [])
-
-                if msg_id not in main_agent_msg_ids:
-                    continue
-
-                if tool_calls or not content:
-                    continue
-
-                prev = last_content.get(msg_id, "")
-                delta = content[len(prev):]
-                last_content[msg_id] = content
-
-                if delta:
-                    yield delta
-
-    # ── 스트림 종료 후: OCR 결과 확인 ─────────────────────────
-    # analyze_menu_image tool이 호출됐다면 thread state의 ToolMessage에서 결과 추출
     TOOL_EVENT_MAP = {
         "analyze_menu_image": "__ocr_result__",
         "search_nearby_stores": "__nearby_stores_result__",
     }
+    # ── ToolMessage 누적 버퍼 ─────────────────────────────────
+    # msg_id → { "name": tool_name, "chunks": [content조각들] }
+    tool_buffers: dict[str, dict] = {}
 
-    try:
-        thread_state = await client.threads.get_state(lg_thread_id)
-        state_values = thread_state.get("values", {}) if isinstance(thread_state, dict) else getattr(thread_state, "values", {}) or {}
-        messages = state_values.get("messages", [])
+    async for chunk in client.runs.stream(
+        lg_thread_id,
+        "chat_agent",
+        input=input_payload,
+        stream_mode="messages-tuple",
+    ):
+        event = chunk.event
+        if event != "messages":
+            continue
 
-        found_tools = set()
-        for msg in reversed(messages):
-            msg_type = msg.get("type") if isinstance(msg, dict) else getattr(msg, "type", None)
-            msg_name = msg.get("name") if isinstance(msg, dict) else getattr(msg, "name", None)
-            msg_content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+        msg, metadata = chunk.data
+        node = metadata.get("langgraph_node", "")
+        msg_type = msg.get("type", "")
+        msg_name = msg.get("name", "")
 
-            if msg_type == "tool" and msg_name in TOOL_EVENT_MAP and msg_name not in found_tools:
-                found_tools.add(msg_name)
-                try:
-                    import json as _json
-                    tool_data = _json.loads(msg_content) if isinstance(msg_content, str) else msg_content
-                    yield (TOOL_EVENT_MAP[msg_name], tool_data)
-                except Exception:
-                    pass
-            # 마지막 HumanMessage까지만 탐색 (이전 턴의 Tool 결과는 무시)
-            if msg_type == "human":
-                break
-    except Exception:
-        pass
+        # ── ToolMessage → 버퍼에 누적 (파싱하지 않음) ──────────
+        if msg_type in ("tool", "ToolMessage", "ToolMessageChunk") and msg_name in TOOL_EVENT_MAP:
+            msg_id = msg.get("id", "")
+            content = msg.get("content", "")
+            if msg_id not in tool_buffers:
+                tool_buffers[msg_id] = {"name": msg_name, "chunks": []}
+            if content:
+                tool_buffers[msg_id]["chunks"].append(content)
+            continue
+
+        # ── main_agent 텍스트 토큰만 yield ────────────────────
+        if node != "main_agent":
+            continue
+        if msg.get("tool_calls") or not msg.get("content"):
+            continue
+
+        yield msg["content"]
+
+    # ── 스트리밍 종료 후: 누적된 ToolMessage 파싱 & yield ───────
+    import json as _json
+    found_tools: set[str] = set()
+    for msg_id, buf in tool_buffers.items():
+        tool_name = buf["name"]
+        if tool_name in found_tools:
+            continue
+        full_content = "".join(buf["chunks"])
+        if not full_content:
+            continue
+        try:
+            tool_data = _json.loads(full_content)
+            found_tools.add(tool_name)
+            yield (TOOL_EVENT_MAP[tool_name], tool_data)
+        except Exception:
+            pass
+
 

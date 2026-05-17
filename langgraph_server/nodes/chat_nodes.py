@@ -5,7 +5,7 @@ from langgraph.graph import END
 
 import json
 from states.chat_state import ChatAgentState
-from config.llm import chat_model, extraction_model
+from config.llm import chat_model, extraction_model, classification_model
 from prompts.chat_prompts import get_query_understanding_prompt, get_main_agent_prompt
 from tools.db_tools import search_nearby_stores
 from tools.vision_tools import analyze_menu_image
@@ -169,7 +169,7 @@ def call_query_understanding(state: ChatAgentState):
     sys_msg = get_query_understanding_prompt()
     enhancer_msg = [sys_msg, HumanMessage(content=user_input)]
     
-    response = extraction_model.invoke(enhancer_msg)
+    response = classification_model.invoke(enhancer_msg)
     understanding = parse_query_understanding(response.content)
 
     normalized_tags = understanding["normalized_tags"]
