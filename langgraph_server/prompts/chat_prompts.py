@@ -1,5 +1,6 @@
 # (c) 2026 oiso.ai
 from langchain_core.messages import SystemMessage
+from states.domain_models import Location
 
 def get_query_understanding_prompt():
     """
@@ -63,8 +64,7 @@ Output: {"intent":"general_chat","normalized_tags":[],"confidence":1.0,"needs_lo
 def get_main_agent_prompt(
     user_language: str,
     enhanced_query: str,
-    client_lat: float = 0.0,
-    client_lng: float = 0.0,
+    location: Location = None,
     intent: str = "clarification_needed",
     normalized_tags: list[str] = None,
     confidence: float = 0.0,
@@ -77,6 +77,8 @@ def get_main_agent_prompt(
     assistant_hint: str = "",
     attachments: list[dict] | None = None,
 ):
+    if location is None:
+        location = Location()
     search_policy = "Do not call tools unless the policy below explicitly allows it."
 
     # 이미지 첨부 플레이스홀더 정보 생성
@@ -98,7 +100,7 @@ def get_main_agent_prompt(
     return SystemMessage(content=f"""
 You are an expert local guide AI for Korean traditional markets.
 The user prefers to speak in: {user_language}.
-The user's current GPS coordinates are: latitude={client_lat}, longitude={client_lng}.
+The user's current GPS coordinates are: latitude={location.lat}, longitude={location.lng}.
 
 [QUERY UNDERSTANDING]
 - intent: {intent}
@@ -137,7 +139,7 @@ The user's current GPS coordinates are: latitude={client_lat}, longitude={client
 
 1. If intent is "nearby_recommendation":
    - If has_valid_location is true and normalized_tags is not empty, call `search_nearby_stores`.
-   - Use tag_names={normalized_tags if normalized_tags else enhanced_query}, lat={client_lat}, lng={client_lng}.
+   - Use tag_names={normalized_tags if normalized_tags else enhanced_query}, lat={location.lat}, lng={location.lng}.
    - Do not invent coordinates.
    - If has_valid_location is false, do not call the tool. Ask the user to enable or provide location.
 

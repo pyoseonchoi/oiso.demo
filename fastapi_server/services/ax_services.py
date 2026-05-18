@@ -209,8 +209,7 @@ async def run_chat_agent(
         input={
             "messages": [{"role": "human", "content": user_message}],
             "user_language": user_language,
-            "client_lat": client_lat,
-            "client_lng": client_lng,
+            "location": {"lat": client_lat, "lng": client_lng},
         },
     )
 
@@ -266,8 +265,7 @@ async def stream_chat_agent(
         input={
             "messages": [{"role": "human", "content": user_message}],
             "user_language": user_language,
-            "client_lat": client_lat,
-            "client_lng": client_lng,
+            "location": {"lat": client_lat, "lng": client_lng},
         },
         stream_mode="messages",
     ):
@@ -328,8 +326,7 @@ async def stream_chat_agent_v2(
     input_payload = {
         "messages": [{"role": "human", "content": user_message}],
         "user_language": user_language,
-        "client_lat": client_lat,
-        "client_lng": client_lng,
+        "location": {"lat": client_lat, "lng": client_lng},
         "attachments": prepare_attachments_for_langgraph(attachments),
     }
 

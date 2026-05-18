@@ -3,22 +3,28 @@ from langchain_core.tools import tool
 import os
 import json
 from sqlalchemy import create_engine, text
+from states.domain_models import MarkerInfo
 
 _engine = None
+
 
 def tool_response(
     status: str,
     tag_names: list[str],
     radius_km: float,
-    results: list | None = None,
+    results: list[MarkerInfo] | None = None,
     message: str = "",
 ) -> str:
+    """도메인 객체 리스트를 JSON 직렬화하여 반환."""
+    serialized_results = [
+        marker.model_dump() for marker in (results or [])
+    ]
     payload = {
         "status": status,  # "success" | "empty" | "error"
         "tag_names": tag_names,
         "radius_km": radius_km,
-        "count": len(results or []),
-        "results": results or [],
+        "count": len(serialized_results),
+        "results": serialized_results,
         "message": message,
     }
     return json.dumps(payload, ensure_ascii=False)
@@ -72,7 +78,7 @@ def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km
             if radius_km <= 1.0:
                 search_radiuses.extend([3.0, 5.0])
 
-            nearby_clusters = []
+            nearby_clusters: list[MarkerInfo] = []
             final_radius = radius_km
 
             for current_radius in search_radiuses:
@@ -136,21 +142,22 @@ def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km
                 ).fetchall()
 
                 for row in result:
-                    nearby_clusters.append({
-                        "cluster_no": row[0],
-                        "latitude": float(row[1]),
-                        "longitude": float(row[2]),
-                        "tags": row[4],
-                        "distance_km": round(float(row[3]), 2),
-                        "thumbnail_s3_key": row[5],  # ← 추가 (None일 수 있음)
-                    })
+                    marker = MarkerInfo(
+                        cluster_no=row[0],
+                        latitude=float(row[1]),
+                        longitude=float(row[2]),
+                        distance_km=round(float(row[3]), 2),
+                        tags=row[4],
+                        thumbnail_s3_key=row[5],
+                    )
+                    nearby_clusters.append(marker)
                 
                 if nearby_clusters:
                     final_radius = current_radius
                     break
 
             # 거리가 가까운 순서대로 정렬 (오름차순)
-            nearby_clusters.sort(key=lambda x: x["distance_km"])
+            nearby_clusters.sort(key=lambda m: m.distance_km)
 
             nearby_clusters = nearby_clusters[:5]
 
@@ -177,4 +184,3 @@ def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km
             radius_km=radius_km,
             message=f"Error while searching the database: {str(e)}",
         )
-

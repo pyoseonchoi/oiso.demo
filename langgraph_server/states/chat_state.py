@@ -14,8 +14,7 @@ IntentType = Literal[
 
 class ChatAgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    client_lat: float
-    client_lng: float
+    location: dict               # Location 도메인 객체 ({"lat": float, "lng": float})
     user_language: str
     enhanced_query: list[str]
     attachments: NotRequired[list[dict]]

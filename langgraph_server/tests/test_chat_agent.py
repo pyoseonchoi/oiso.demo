@@ -17,8 +17,7 @@ def run_test():
     # 1. 초기 메시지와 상태(State) 값 설정
     initial_state = {
         "messages": [HumanMessage(content="I saw people eating long red rice cakes, where can I get those nearby?")],
-        "client_lat": 35.8690,
-        "client_lng": 128.5930,
+        "location": {"lat": 35.8690, "lng": 128.5930},
         "user_language": "English"
     }
     

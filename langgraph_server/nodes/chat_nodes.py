@@ -5,6 +5,7 @@ from langgraph.graph import END
 
 import json
 from states.chat_state import ChatAgentState
+from states.domain_models import Location
 from config.llm import chat_model, extraction_model, classification_model
 from prompts.chat_prompts import get_query_understanding_prompt, get_main_agent_prompt
 from tools.db_tools import search_nearby_stores
@@ -16,15 +17,15 @@ tools = [search_nearby_stores, analyze_menu_image]
 model_with_tools = chat_model.bind_tools(tools)
 
 
+# ─── 헬퍼 함수 ──────────────────────────────────────────────────
 
-# 헬퍼 함수 정의
-def has_valid_location(lat: float | None, lng: float | None) -> bool:
-    """좌표가 실제 사용 가능한 값인지 검증."""
-    if lat is None or lng is None:
-        return False
-    if lat == 0.0 and lng == 0.0:
-        return False
-    return -90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0
+def get_location(state: ChatAgentState) -> Location:
+    """State의 location dict를 Location 도메인 객체로 변환."""
+    loc = state.get("location") or {}
+    return Location(
+        lat=loc.get("lat", 0.0),
+        lng=loc.get("lng", 0.0),
+    )
 
 
 def parse_query_understanding(raw_content: str) -> dict:
@@ -174,6 +175,9 @@ def call_query_understanding(state: ChatAgentState):
 
     normalized_tags = understanding["normalized_tags"]
 
+    # Location 도메인 객체를 통해 좌표 유효성 검증
+    location = get_location(state)
+
     return {
         "enhanced_query": normalized_tags,
         "intent": understanding["intent"],
@@ -183,10 +187,7 @@ def call_query_understanding(state: ChatAgentState):
         "needs_menu_ocr": understanding["needs_menu_ocr"],
         "needs_order_flow": understanding["needs_order_flow"],
         "image_intent": understanding["image_intent"],
-        "has_valid_location": has_valid_location(
-            state.get("client_lat"),
-            state.get("client_lng"),
-        ),
+        "has_valid_location": location.is_valid(),
         "assistant_hint": understanding["assistant_hint"],
     }
 
@@ -197,11 +198,13 @@ def call_main_agent(state: ChatAgentState):
     enhanced_q = state.get("enhanced_query", [])
     attachments = state.get("attachments") or []
 
+    # Location 도메인 객체를 통해 좌표에 접근
+    location = get_location(state)
+
     sys_msg = get_main_agent_prompt(
         user_language=user_lang,
         enhanced_query=enhanced_q,
-        client_lat=state.get("client_lat", 0.0),
-        client_lng=state.get("client_lng", 0.0),
+        location=location,
         intent=state.get("intent", "clarification_needed"),
         normalized_tags=state.get("normalized_tags", []),
         confidence=state.get("confidence", 0.0),
