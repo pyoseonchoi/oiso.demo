@@ -1,11 +1,27 @@
 # (c) 2026 oiso.ai
 from langchain_core.tools import tool
-import math
 import os
 import json
 from sqlalchemy import create_engine, text
 
 _engine = None
+
+def tool_response(
+    status: str,
+    tag_names: list[str],
+    radius_km: float,
+    results: list | None = None,
+    message: str = "",
+) -> str:
+    payload = {
+        "status": status,  # "success" | "empty" | "error"
+        "tag_names": tag_names,
+        "radius_km": radius_km,
+        "count": len(results or []),
+        "results": results or [],
+        "message": message,
+    }
+    return json.dumps(payload, ensure_ascii=False)
 
 def get_engine():
     """DB 엔진을 싱글톤으로 지연 생성하고, 배포용 커넥션 풀 최적화 적용"""
@@ -23,72 +39,142 @@ def get_engine():
             )
     return _engine
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0 # 지구 반지름 (km)
-    dLat = math.radians(lat2 - lat1)
-    dLon = math.radians(lon2 - lon1)
-    a = math.sin(dLat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
+
 
 @tool
-def search_nearby_stores(tag_name: str, lat: float, lng: float, radius_km: float = 1.0) -> str:
+def search_nearby_stores(tag_names: list[str], lat: float, lng: float, radius_km: float = 1.0) -> str:
     """
-    Search for nearby photo clusters that are tagged with a specific Korean keyword.
+    Search nearby traditional-market clusters by a list of Korean tags.
 
     Args:
-        tag_name (str): The Korean tag to search for (e.g., "떡볶이", "김밥").
-        lat (float): The latitude of the user's current location.
-        lng (float): The longitude of the user's current location.
-        radius_km (float): The search radius in kilometers (default is 1.0).
+        tag_names: List of Korean tags to search for, such as ["떡볶이", "김밥"].
+        lat: User latitude.
+        lng: User longitude.
+        radius_km: Search radius in kilometers.
 
     Returns:
-        str: A JSON-formatted string containing a list of nearby clusters (cluster_no, tags, distance),
-             or a message indicating that no clusters were found.
+        JSON string with status, tag_names, radius_km, count, results, and message.
     """
     engine = get_engine()
     if engine is None:
-        return "Error: DATABASE_URL environment variable is not set."
+        return tool_response(
+            status="error",
+            tag_names=tag_names,
+            radius_km=radius_km,
+            message="DATABASE_URL environment variable is not set.",
+        )
 
     try:
         with engine.connect() as conn:
             # tag_list로 태그와 연결된 cluster_array 조회
             # tags 테이블의 PK가 tag_string(문자열)이므로 직접 비교
-            query = text('''
-                SELECT ca.cluster_no, ca.latitude, ca.longitude,
-                       array_agg(ct2.tag) AS all_tags
-                FROM cluster_array ca
-                JOIN tag_list ct ON ca.cluster_no = ct.cluster_no
-                JOIN tag_list ct2 ON ca.cluster_no = ct2.cluster_no
-                WHERE ct.tag = :tag_name
-                GROUP BY ca.cluster_no, ca.latitude, ca.longitude
-            ''')
-            result = conn.execute(query, {"tag_name": tag_name}).fetchall()
+            search_radiuses = [radius_km]
+            if radius_km <= 1.0:
+                search_radiuses.extend([3.0, 5.0])
 
             nearby_clusters = []
-            for row in result:
-                cluster_no  = row[0]
-                cluster_lat = row[1]
-                cluster_lng = row[2]
-                all_tags    = row[3]  # 해당 클러스터의 모든 태그 목록
+            final_radius = radius_km
 
-                distance = haversine(lat, lng, cluster_lat, cluster_lng)
+            for current_radius in search_radiuses:
+                query = text("""
+                    WITH matched_clusters AS (
+                        SELECT
+                            ca.cluster_no,
+                            ca.latitude,
+                            ca.longitude,
+                            ST_Distance(
+                                ca.geom::geography,
+                                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+                            ) / 1000.0 AS distance_km
+                        FROM cluster_array ca
+                        JOIN tag_list tl ON ca.cluster_no = tl.cluster_no
+                        WHERE tl.tag IN :tag_names
+                        AND ST_DWithin(
+                            ca.geom::geography,
+                            ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
+                            :radius_m
+                        )
+                    ),
+                    cluster_tags AS (
+                        SELECT
+                            mc.cluster_no,
+                            mc.latitude,
+                            mc.longitude,
+                            mc.distance_km,
+                            array_agg(DISTINCT tl2.tag ORDER BY tl2.tag) AS all_tags
+                        FROM matched_clusters mc
+                        JOIN tag_list tl2 ON mc.cluster_no = tl2.cluster_no
+                        GROUP BY mc.cluster_no, mc.latitude, mc.longitude, mc.distance_km
+                    )
+                    SELECT
+                        ct.cluster_no,
+                        ct.latitude,
+                        ct.longitude,
+                        ct.distance_km,
+                        ct.all_tags,
+                        (
+                            SELECT i.s3_key
+                            FROM picture_list pl
+                            JOIN picture p ON pl.pic_no = p.unique_id
+                            JOIN image i ON p.image_id = i.unique_id
+                            WHERE pl.cluster_no = ct.cluster_no
+                            LIMIT 1
+                        ) AS thumbnail_s3_key
+                    FROM cluster_tags ct
+                    ORDER BY ct.distance_km ASC
+                    LIMIT 5
+                """)
 
-                if distance <= radius_km:
+                result = conn.execute(
+                    query,
+                    {
+                        "tag_names": tuple(tag_names) if tag_names else tuple([""]),
+                        "lat": lat,
+                        "lng": lng,
+                        "radius_m": current_radius * 1000,
+                    },
+                ).fetchall()
+
+                for row in result:
                     nearby_clusters.append({
-                        "cluster_no": cluster_no,
-                        "tags": all_tags,        # AI가 어떤 곳인지 설명하는 데 사용
-                        "distance_km": round(distance, 2)
+                        "cluster_no": row[0],
+                        "latitude": float(row[1]),
+                        "longitude": float(row[2]),
+                        "tags": row[4],
+                        "distance_km": round(float(row[3]), 2),
+                        "thumbnail_s3_key": row[5],  # ← 추가 (None일 수 있음)
                     })
+                
+                if nearby_clusters:
+                    final_radius = current_radius
+                    break
 
             # 거리가 가까운 순서대로 정렬 (오름차순)
             nearby_clusters.sort(key=lambda x: x["distance_km"])
 
-            if not nearby_clusters:
-                return f"No clusters found within {radius_km}km for the tag '{tag_name}'."
+            nearby_clusters = nearby_clusters[:5]
 
-            return json.dumps(nearby_clusters, ensure_ascii=False)
+            if not nearby_clusters:
+                return tool_response(
+                    status="empty",
+                    tag_names=tag_names,
+                    radius_km=final_radius,
+                    message=f"No clusters found within {final_radius}km for the tags: {tag_names}.",
+                )
+
+            return tool_response(
+                status="success",
+                tag_names=tag_names,
+                radius_km=final_radius,
+                results=nearby_clusters,
+                message=f"Found {len(nearby_clusters)} nearby clusters.",
+            )
 
     except Exception as e:
-        return f"Error while searching the database: {str(e)}"
+        return tool_response(
+            status="error",
+            tag_names=tag_names,
+            radius_km=radius_km,
+            message=f"Error while searching the database: {str(e)}",
+        )
 

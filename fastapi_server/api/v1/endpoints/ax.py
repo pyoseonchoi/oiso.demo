@@ -1,11 +1,17 @@
 from fastapi import APIRouter, File, UploadFile, Form
 import json
+from core.storage import generate_image_url
+
 from fastapi.responses import StreamingResponse
 from typing import List, Annotated
 from exceptions.base import AppException
 from schemas.ax_schema import (
     ChatV2Request,
+    ChatV2WithAttachmentsRequest,
     ChatV2Response,
+    ChatAttachmentUploadResponse,
+    AnalyzeChatMenuRequest,
+    AnalyzeChatMenuResponse,
     MenuInformation,
     OCRInformation,
     PicNOrderResponse,
@@ -117,11 +123,132 @@ async def stream_chat(request: ChatV2Request):
     )
 
 
+@router.post("/stream_chat_v2")
+async def stream_chat_v2(request: ChatV2WithAttachmentsRequest):
+    """
+    기존 /stream_chat에 이미지 첨부 메타데이터 전달만 추가한 v2 엔드포인트입니다.
+    token/ui_outputs/done 타입을 가진 JSON SSE 이벤트를 반환합니다.
+    """
+    async def generate():
+        attachments = [
+            attachment.model_dump()
+            for attachment in request.attachments
+        ]
+        try:
+            async for item in ax_services.stream_chat_agent_v2(
+                thread_id=request.uuid,
+                user_message=request.user_added_message,
+                user_language=request.user_language,
+                client_lat=request.client_lat,
+                client_lng=request.client_lng,
+                attachments=attachments,
+            ):
+                if isinstance(item, tuple):
+                    event_key, event_data = item
+
+                    if event_key == "__ocr_result__":
+                        for menu_item in event_data.get("menus", []):
+                            menu_item["price"] = normalize_menu_price(
+                                menu_item.get("price", 0)
+                            )
+                        payload = {
+                            "type": "menu_ocr_result",
+                            "ocr_structure": event_data,
+                        }
+                    elif event_key == "__nearby_stores_result__":
+                        
+                        for store in event_data.get("results", []):
+                            s3_key = store.pop("thumbnail_s3_key", None)
+                            store["thumbnail_url"] = (
+                                generate_image_url(s3_key) if s3_key else ""
+                            )
+                        payload = {
+                            "type": "nearby_stores_result",
+                            "data": event_data,
+                        }
+                        
+                    else:
+                        continue  # 알 수 없는 이벤트는 무시
+                else:
+                    # 일반 텍스트 토큰
+                    payload = {"type": "token", "delta": item}
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            payload = {"type": "error", "message": str(e)}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        finally:
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/upload_chat_attachment", response_model=ChatAttachmentUploadResponse)
+async def upload_chat_attachment(
+    image: Annotated[UploadFile, File(description="채팅 첨부 이미지")],
+    thread_id: Annotated[str | None, Form()] = None,
+):
+    """
+    채팅에서 사용할 이미지 첨부 파일을 S3/MinIO에 저장합니다.
+    지도 데이터 구축용 DB 테이블에는 저장하지 않습니다.
+    """
+    attachment = ax_services.upload_chat_attachment(
+        image=image,
+        thread_id=thread_id,
+    )
+    return ChatAttachmentUploadResponse(attachment=attachment)
+
+
+@router.post("/analyze_chat_menu", response_model=AnalyzeChatMenuResponse)
+async def analyze_chat_menu(request: AnalyzeChatMenuRequest):
+    """
+    S3/MinIO에 저장된 채팅 첨부 메뉴판 이미지를 OCR Agent로 분석합니다.
+    채팅 첨부 이미지는 DB에 저장하지 않고, OCR 결과만 반환합니다.
+    """
+    if request.attachment.type != "image":
+        raise AppException(
+            status_code=400,
+            reason="이미지 첨부만 메뉴판 분석에 사용할 수 있습니다.",
+        )
+
+    if not request.attachment.s3_key:
+        raise AppException(
+            status_code=400,
+            reason="분석할 이미지의 s3_key가 필요합니다.",
+        )
+
+    image_b64 = ax_services.load_chat_attachment_as_base64(
+        request.attachment.s3_key,
+    )
+    ocr_result = await ax_services.run_ocr_agent(
+        image_b64,
+        request.user_language,
+    )
+
+    if hasattr(ocr_result, "model_dump"):
+        ocr_result = ocr_result.model_dump()
+
+    menus = ocr_result.get("menus", [])
+    for menu_item in menus:
+        menu_item["price"] = normalize_menu_price(menu_item.get("price", 0))
+
+    return AnalyzeChatMenuResponse(
+        ocr_structure=OCRInformation(**ocr_result)
+    )
+
+
 @router.post("/get_picnorder", response_model=PicNOrderResponse)
 async def pic_n_order(
     uuid: Annotated[str, Form(...)],
     user_language: Annotated[str, Form(...)],
-    pic: Annotated[UploadFile, File(description="메뉴판 이미지")],
+    pics: Annotated[UploadFile, File(description="메뉴판 이미지")],
 ):
     """
     메뉴판 사진을 OCR Agent로 전달하여 구조화된 메뉴 정보를 반환합니다.
@@ -131,17 +258,17 @@ async def pic_n_order(
 
     # 파일 형식 검사
     allowed_content_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-    if pic.content_type not in allowed_content_types:
+    if pics.content_type not in allowed_content_types:
         raise AppException(
             status_code=400, 
-            reason=f"지원하지 않는 이미지 형식입니다. JPG, PNG, GIF, WEBP 형식만 가능합니다. (현재: {pic.content_type})"
+            reason=f"지원하지 않는 이미지 형식입니다. JPG, PNG, GIF, WEBP 형식만 가능합니다. (현재: {pics.content_type})"
         )
 
-    pic.file.seek(0)
-    image_bytes = await pic.read() # uploadfile -> bytes로
+    pics.file.seek(0)
+    image_bytes = await pics.read() # uploadfile -> bytes로
     image_b64 = base64.b64encode(image_bytes).decode("utf-8") # bytes -> base64 문자열
 
-    pic.file.seek(0)
+    pics.file.seek(0)
 
     ocr_result = await ax_services.run_ocr_agent(image_b64, user_language)
     

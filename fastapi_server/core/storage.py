@@ -2,6 +2,8 @@ import boto3
 from botocore.exceptions import ClientError
 from core.config import settings
 import json
+from urllib.parse import quote
+
 #S3 클라이언트 생성
 
 def get_s3_client():
@@ -59,18 +61,32 @@ def init_storage():
         }
         s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
 
-def generate_image_url(s3_key: str, expires_in: int = 600) -> str:
-    """환경에 따라 이미지 URL을 생성"""
+def _join_url(base_url: str, s3_key: str) -> str:
+    safe_key = quote(s3_key.lstrip("/"), safe="/")
+    return f"{base_url.rstrip('/')}/{safe_key}"
+
+
+def generate_image_url(s3_key: str, expires_in: int | None = None) -> str:
+    """환경에 따라 이미지 접근 URL 생성.
+
+    - Local MinIO: 기존 MinIO direct URL
+    - AWS + CloudFront: CDN URL
+    - AWS fallback: S3 presigned URL
+    """
+    if not s3_key:
+        return ""
+
     bucket = get_bucket_name()
 
     if settings.MINIO_ENDPOINT_URL:
-        # MinIO: Public Read 정책이 설정되어 있으므로 직접 URL 반환
-        return f"{settings.MINIO_ENDPOINT_URL}/{bucket}/{s3_key}"
-    else:
-        # S3: presigned URL 생성
-        s3_client = get_s3_client()
-        return s3_client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": bucket, "Key": s3_key},
-            ExpiresIn=expires_in,
-        )
+        return _join_url(f"{settings.MINIO_ENDPOINT_URL}/{bucket}", s3_key)
+
+    if settings.CDN_BASE_URL:
+        return _join_url(settings.CDN_BASE_URL, s3_key)
+
+    s3_client = get_s3_client()
+    return s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": s3_key},
+        ExpiresIn=expires_in or settings.IMAGE_URL_EXPIRES_IN,
+    )

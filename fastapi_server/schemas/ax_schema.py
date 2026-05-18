@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 from schemas.base_schema import BaseSuccessResponse
 
@@ -15,11 +15,37 @@ class ChatV2Request(BaseModel):
     client_lng: float          # 유저 현재 경도 (주변 가게 검색용)
 
 
+class ChatAttachment(BaseModel):
+    type: str = "image"
+    attachment_id: str | None = None
+    url: str
+    s3_key: str | None = None
+    mime_type: str | None = None
+
+
+class ChatV2WithAttachmentsRequest(ChatV2Request):
+    attachments: List[ChatAttachment] = Field(default_factory=list)
+
+
 class ChatV2Response(BaseSuccessResponse):
     response: str              # AI 응답 텍스트 (또는 성공/실패 메시지)
 
 
 # ─── /v1/ax/pic_n_order ─────────────────────────────────────────
+
+class ChatAttachmentUploadItem(BaseModel):
+    type: str = "image"
+    attachment_id: str
+    url: str
+    s3_bucket: str
+    s3_key: str
+    s3_version: str | None = None
+    mime_type: str
+
+
+class ChatAttachmentUploadResponse(BaseSuccessResponse):
+    attachment: ChatAttachmentUploadItem
+
 
 class MenuInformation(BaseModel):
     number: int
@@ -35,4 +61,14 @@ class OCRInformation(BaseModel):
 
 
 class PicNOrderResponse(BaseSuccessResponse):
+    ocr_structure: OCRInformation | None = None
+
+
+class AnalyzeChatMenuRequest(BaseModel):
+    thread_id: str | None = None
+    user_language: str
+    attachment: ChatAttachment
+
+
+class AnalyzeChatMenuResponse(BaseSuccessResponse):
     ocr_structure: OCRInformation | None = None
